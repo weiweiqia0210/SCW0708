@@ -1,0 +1,6 @@
+{
+  "name": "AI 互动文游",
+  "description": "清透蓝白风格的沉浸式 AI 互动文游与小说创作平台，支持角色卡、世界书、预设、多轮剧情分支与动态数值追踪。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
