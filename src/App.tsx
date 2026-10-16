@@ -251,7 +251,7 @@ export default function App() {
         />
       ) : (
         /* Standard Navigation Views */
-        <div className="min-h-screen flex flex-col">
+        <div className="min-h-screen min-h-[100dvh] flex flex-col">
           {/* Main Content Area */}
           <main className="flex-1">
             {activeTab === 'home' && (

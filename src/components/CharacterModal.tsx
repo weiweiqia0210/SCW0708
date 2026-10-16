@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { CharacterCard, AppSettings } from '../types';
 import { downloadJsonFile, loadSettings } from '../utils/storage';
+import { polishCharacter } from '../utils/aiService';
 
 interface CharacterModalProps {
   isOpen: boolean;
@@ -170,20 +171,15 @@ export const CharacterModal: React.FC<CharacterModalProps> = ({
 
     try {
       const settings: AppSettings = loadSettings();
-      const res = await fetch('/api/polish-character', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: aiDraftInput.trim(),
-          provider: settings.provider,
-          model: settings.model,
-          customApiKey: settings.customApiKey,
-          customEndpoint: settings.customEndpoint,
-        }),
+      const data = await polishCharacter({
+        text: aiDraftInput.trim(),
+        provider: settings.provider,
+        model: settings.model,
+        customApiKey: settings.customApiKey,
+        customEndpoint: settings.customEndpoint,
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
+      if (!data.success || !data.character) {
         throw new Error(data.error || 'AI 润色解析失败');
       }
 

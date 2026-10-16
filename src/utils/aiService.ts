@@ -1,0 +1,662 @@
+import { AIProvider, AppSettings } from '../types';
+
+export interface ChatApiMessage {
+  role: 'user' | 'model' | 'assistant';
+  text?: string;
+  content?: string;
+}
+
+export interface StreamChatParams {
+  provider: AIProvider;
+  model: string;
+  customApiKey?: string;
+  customEndpoint?: string;
+  temperature?: number;
+  systemInstruction?: string;
+  messages: ChatApiMessage[];
+  signal?: AbortSignal;
+  onChunk: (text: string) => void;
+  onDone?: () => void;
+}
+
+// Cache whether the backend /api is accessible
+let backendAvailable: boolean | null = null;
+
+export async function checkBackendStatus(): Promise<{
+  hasBackend: boolean;
+  hasEnvKey: boolean;
+  defaultModel: string;
+}> {
+  try {
+    const res = await fetch('/api/env-status', {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      backendAvailable = true;
+      return {
+        hasBackend: true,
+        hasEnvKey: Boolean(data.hasEnvGeminiKey),
+        defaultModel: data.defaultModel || 'gemini-3.8-flash',
+      };
+    }
+  } catch {
+    // Backend unreachable (e.g. GitHub Pages static deployment)
+  }
+  backendAvailable = false;
+  return {
+    hasBackend: false,
+    hasEnvKey: false,
+    defaultModel: 'gemini-3.8-flash',
+  };
+}
+
+/**
+ * Core Streaming Chat Service:
+ * 1. Attempts to use backend /api/chat/stream proxy if available.
+ * 2. If backend returns 404 or fails to connect (e.g. on GitHub Pages static deployment),
+ *    it automatically falls back to direct client-side API streaming using the user's API Key!
+ */
+export async function streamChat(params: StreamChatParams): Promise<void> {
+  const {
+    provider,
+    model,
+    customApiKey,
+    customEndpoint,
+    temperature = 0.85,
+    systemInstruction,
+    messages,
+    signal,
+    onChunk,
+    onDone,
+  } = params;
+
+  // If backend was already confirmed unavailable or not yet checked, test backend first
+  if (backendAvailable !== false) {
+    try {
+      const res = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal,
+        body: JSON.stringify({
+          provider,
+          model,
+          customApiKey,
+          customEndpoint,
+          temperature,
+          systemInstruction,
+          messages,
+        }),
+      });
+
+      // If backend exists and responds
+      if (res.status !== 404) {
+        backendAvailable = true;
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => null);
+          throw new Error(errJson?.error || `服务请求失败 (${res.status})`);
+        }
+        if (!res.body) {
+          throw new Error('未接收到响应数据流');
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              const dataStr = trimmed.slice(6);
+              if (dataStr === '[DONE]') {
+                onDone?.();
+                return;
+              }
+              try {
+                const parsed = JSON.parse(dataStr);
+                if (parsed.error) {
+                  throw new Error(parsed.error);
+                }
+                if (parsed.text) {
+                  onChunk(parsed.text);
+                }
+              } catch (parseErr: any) {
+                if (parseErr.message && !parseErr.message.includes('JSON')) {
+                  throw parseErr;
+                }
+              }
+            }
+          }
+        }
+        onDone?.();
+        return;
+      } else {
+        // Backend returned 404 -> we are in a static hosting environment like GitHub Pages!
+        backendAvailable = false;
+      }
+    } catch (e: any) {
+      if (e.name === 'AbortError') throw e;
+      // If it wasn't a 404 and backend failed with real API error, only fallback if backend fetch completely failed
+      if (backendAvailable === true) {
+        throw e;
+      }
+      backendAvailable = false;
+    }
+  }
+
+  // --- CLIENT-SIDE DIRECT FALLBACK (GitHub Pages / Static Mode) ---
+  const apiKey = customApiKey?.trim();
+  if (!apiKey) {
+    throw new Error('当前运行在 GitHub Pages 纯前端静态模式。请在“设置”页面中输入您的 API Key 即可直接游玩！');
+  }
+
+  if (provider === 'gemini') {
+    await streamGeminiClientSide({
+      apiKey,
+      model,
+      temperature,
+      systemInstruction,
+      messages,
+      signal,
+      onChunk,
+      onDone,
+    });
+  } else if (provider === 'openai_compatible') {
+    await streamOpenAIClientSide({
+      apiKey,
+      endpoint: customEndpoint || 'https://api.openai.com/v1',
+      model,
+      temperature,
+      systemInstruction,
+      messages,
+      signal,
+      onChunk,
+      onDone,
+    });
+  } else {
+    throw new Error(`不支持的服务商: ${provider}`);
+  }
+}
+
+async function streamGeminiClientSide(opts: {
+  apiKey: string;
+  model: string;
+  temperature: number;
+  systemInstruction?: string;
+  messages: ChatApiMessage[];
+  signal?: AbortSignal;
+  onChunk: (text: string) => void;
+  onDone?: () => void;
+}) {
+  const contents = opts.messages.map((m) => ({
+    role: m.role === 'assistant' || m.role === 'model' ? 'model' : 'user',
+    parts: [{ text: m.text || m.content || '' }],
+  }));
+
+  if (contents.length === 0) {
+    contents.push({ role: 'user', parts: [{ text: '剧情开局' }] });
+  }
+
+  const payload: any = {
+    contents,
+    generationConfig: {
+      temperature: Math.max(0.1, Math.min(1.5, opts.temperature)),
+    },
+  };
+
+  if (opts.systemInstruction) {
+    payload.systemInstruction = {
+      parts: [{ text: opts.systemInstruction }],
+    };
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    opts.model || 'gemini-3.8-flash'
+  )}:streamGenerateContent?alt=sse&key=${encodeURIComponent(opts.apiKey)}`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: opts.signal,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Gemini 接口请求失败 (${res.status}): ${errText.slice(0, 200)}`);
+  }
+
+  if (!res.body) {
+    throw new Error('未接收到 Gemini 响应流');
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('data: ')) {
+        const jsonStr = trimmed.slice(6);
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const chunkText = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (chunkText) {
+            opts.onChunk(chunkText);
+          }
+        } catch {
+          // ignore partial json
+        }
+      }
+    }
+  }
+
+  opts.onDone?.();
+}
+
+async function streamOpenAIClientSide(opts: {
+  apiKey: string;
+  endpoint: string;
+  model: string;
+  temperature: number;
+  systemInstruction?: string;
+  messages: ChatApiMessage[];
+  signal?: AbortSignal;
+  onChunk: (text: string) => void;
+  onDone?: () => void;
+}) {
+  const cleanEndpoint = opts.endpoint.replace(/\/+$/, '');
+  const url = cleanEndpoint.endsWith('/chat/completions')
+    ? cleanEndpoint
+    : `${cleanEndpoint}/chat/completions`;
+
+  const apiMessages = [];
+  if (opts.systemInstruction) {
+    apiMessages.push({ role: 'system', content: opts.systemInstruction });
+  }
+  for (const m of opts.messages) {
+    apiMessages.push({
+      role: m.role === 'model' ? 'assistant' : m.role,
+      content: m.text || m.content || '',
+    });
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${opts.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: opts.model,
+      messages: apiMessages,
+      temperature: opts.temperature,
+      stream: true,
+    }),
+    signal: opts.signal,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`API 接口请求失败 (${res.status}): ${errText.slice(0, 200)}`);
+  }
+
+  if (!res.body) {
+    throw new Error('未接收到响应流');
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('data: ')) {
+        const dataStr = trimmed.slice(6);
+        if (dataStr === '[DONE]') {
+          opts.onDone?.();
+          return;
+        }
+        try {
+          const parsed = JSON.parse(dataStr);
+          const chunkContent = parsed.choices?.[0]?.delta?.content;
+          if (chunkContent) {
+            opts.onChunk(chunkContent);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
+  opts.onDone?.();
+}
+
+/**
+ * Test Connection (Dual Mode: Server proxy + Client direct fallback)
+ */
+export async function testConnection(params: {
+  provider: AIProvider;
+  model: string;
+  customApiKey?: string;
+  customEndpoint?: string;
+}): Promise<{ success: boolean; message: string; model?: string }> {
+  const { provider, model, customApiKey, customEndpoint } = params;
+
+  // Try backend proxy if available
+  if (backendAvailable !== false) {
+    try {
+      const res = await fetch('/api/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+
+      if (res.status !== 404) {
+        backendAvailable = true;
+        const data = await res.json();
+        return data;
+      }
+      backendAvailable = false;
+    } catch {
+      backendAvailable = false;
+    }
+  }
+
+  // Client-side fallback
+  const apiKey = customApiKey?.trim();
+  if (!apiKey) {
+    return {
+      success: false,
+      message: '静态模式下必须输入 API Key 才能进行连接测试',
+    };
+  }
+
+  if (provider === 'gemini') {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        model || 'gemini-3.8-flash'
+      )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: '请回复简短确认："文游连接测试成功。"' }] }],
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        return { success: false, message: `Gemini 响应失败 (${res.status}): ${errText.slice(0, 200)}` };
+      }
+      const data = await res.json();
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || '连接成功';
+      return { success: true, message: reply.trim(), model };
+    } catch (e: any) {
+      return { success: false, message: `连接异常: ${e.message}` };
+    }
+  } else if (provider === 'openai_compatible') {
+    try {
+      const endpoint = (customEndpoint || 'https://api.openai.com/v1').replace(/\/+$/, '');
+      const url = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: 'Say hello in one short sentence.' }],
+          max_tokens: 20,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        return { success: false, message: `API 响应失败 (${res.status}): ${errText.slice(0, 200)}` };
+      }
+      const data = await res.json();
+      return {
+        success: true,
+        message: data.choices?.[0]?.message?.content || '连接成功',
+        model,
+      };
+    } catch (e: any) {
+      return { success: false, message: `连接异常: ${e.message}` };
+    }
+  }
+
+  return { success: false, message: '未知服务商' };
+}
+
+/**
+ * Fetch Models (Dual Mode: Server proxy + Client direct fallback)
+ */
+export async function fetchModels(params: {
+  provider: AIProvider;
+  customApiKey?: string;
+  customEndpoint?: string;
+}): Promise<{ success: boolean; models: string[]; error?: string }> {
+  if (params.provider === 'gemini') {
+    return {
+      success: true,
+      models: [
+        'gemini-3.8-flash',
+        'gemini-4-argon',
+        'gemini-3.1-flash-lite',
+      ],
+    };
+  }
+
+  // Try backend proxy if available
+  if (backendAvailable !== false) {
+    try {
+      const res = await fetch('/api/fetch-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+
+      if (res.status !== 404) {
+        backendAvailable = true;
+        const data = await res.json();
+        return data;
+      }
+      backendAvailable = false;
+    } catch {
+      backendAvailable = false;
+    }
+  }
+
+  // Client-side direct query
+  const apiKey = params.customApiKey?.trim();
+  if (!apiKey) {
+    return { success: false, models: [], error: '未填写 API Key' };
+  }
+
+  try {
+    let endpoint = (params.customEndpoint || 'https://api.openai.com/v1').replace(/\/+$/, '');
+    let modelsUrl = endpoint.endsWith('/models') ? endpoint : `${endpoint}/models`;
+
+    let res = await fetch(modelsUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (res.status === 404 && !endpoint.includes('/v1')) {
+      const fallbackUrl = `${endpoint}/v1/models`;
+      const fallbackRes = await fetch(fallbackUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (fallbackRes.ok) {
+        res = fallbackRes;
+      }
+    }
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      return { success: false, models: [], error: `拉取失败 (${res.status}): ${errorText.slice(0, 200)}` };
+    }
+
+    const data = await res.json();
+    let modelList: string[] = [];
+    if (Array.isArray(data.data)) {
+      modelList = data.data.map((m: any) => m.id || m.name || String(m)).filter(Boolean);
+    } else if (Array.isArray(data.models)) {
+      modelList = data.models.map((m: any) => m.name || m.id || String(m)).filter(Boolean);
+    } else if (Array.isArray(data)) {
+      modelList = data.map((m: any) => m.id || String(m)).filter(Boolean);
+    }
+
+    modelList.sort();
+    return { success: true, models: modelList };
+  } catch (e: any) {
+    return { success: false, models: [], error: `网络异常: ${e.message}` };
+  }
+}
+
+/**
+ * Polish Character (Dual Mode: Server proxy + Client direct fallback)
+ */
+export async function polishCharacter(params: {
+  text: string;
+  provider: AIProvider;
+  model: string;
+  customApiKey?: string;
+  customEndpoint?: string;
+}): Promise<{ success: boolean; character?: any; error?: string }> {
+  // Try backend proxy if available
+  if (backendAvailable !== false) {
+    try {
+      const res = await fetch('/api/polish-character', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+
+      if (res.status !== 404) {
+        backendAvailable = true;
+        const data = await res.json();
+        return data;
+      }
+      backendAvailable = false;
+    } catch {
+      backendAvailable = false;
+    }
+  }
+
+  // Client-side fallback
+  const apiKey = params.customApiKey?.trim();
+  if (!apiKey) {
+    return { success: false, error: '静态部署模式下，请先在“设置”中填写 API Key' };
+  }
+
+  const prompt = `你是一名资深互动小说与角色设定大师。请根据用户提供的原始零散描述，进行专业文学润色和结构化拆解，提炼出完整的角色档案。
+必须严格输出合法的纯 JSON 格式（不要附带任何前缀解释、markdown代码块标记或多余文字），JSON 对象包含以下确切键：
+{
+  "name": "角色姓名（精炼有韵味）",
+  "identity": "身份职业（如：天谕司神官、星际赏金猎人）",
+  "gender": "性别（男 / 女 / 其他）",
+  "age": "年龄（如：24岁、外表19岁或成长期）",
+  "appearance": "外貌神态（详细描写容貌、体态、服饰、独特标志等，150-300字）",
+  "personality": "性格特质（立体多面，包含表层性格、潜在性格、底线反差等，150-300字）",
+  "background": "身世背景（核心过往经历、身世之谜、与世界主线的关联等，200-400字）",
+  "speechStyle": "台词语气习惯（口吻、语气助词、说话频率、经典语调，80-150字）",
+  "customNotes": "特殊能力/弱点/羁绊/专属信物等补充（100-200字）"
+}
+
+用户提供的原始零散描述如下：
+"${params.text}"`;
+
+  try {
+    let replyText = '';
+    if (params.provider === 'gemini') {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        params.model || 'gemini-3.8-flash'
+      )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7 },
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        return { success: false, error: `Gemini 润色请求失败 (${res.status}): ${errText.slice(0, 200)}` };
+      }
+      const data = await res.json();
+      replyText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } else {
+      const endpoint = (params.customEndpoint || 'https://api.openai.com/v1').replace(/\/+$/, '');
+      const url = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: params.model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        return { success: false, error: `API 润色请求失败 (${res.status}): ${errText.slice(0, 200)}` };
+      }
+      const data = await res.json();
+      replyText = data.choices?.[0]?.message?.content || '';
+    }
+
+    let cleanJson = replyText.trim();
+    if (cleanJson.startsWith('```json')) {
+      cleanJson = cleanJson.slice(7);
+    } else if (cleanJson.startsWith('```')) {
+      cleanJson = cleanJson.slice(3);
+    }
+    if (cleanJson.endsWith('```')) {
+      cleanJson = cleanJson.slice(0, -3);
+    }
+    cleanJson = cleanJson.trim();
+
+    const parsed = JSON.parse(cleanJson);
+    return { success: true, character: parsed };
+  } catch (e: any) {
+    return { success: false, error: `解析异常: ${e.message}` };
+  }
+}

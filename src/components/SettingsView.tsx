@@ -14,6 +14,7 @@ import {
   List,
 } from 'lucide-react';
 import { AppSettings, AIProvider } from '../types';
+import { checkBackendStatus, testConnection, fetchModels } from '../utils/aiService';
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -37,11 +38,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdateSe
     setFormData(settings);
   }, [settings]);
 
-  // Check server environment status
+  // Check server or client mode status
   useEffect(() => {
-    fetch('/api/env-status')
-      .then((res) => res.json())
-      .then((data) => setEnvStatus(data))
+    checkBackendStatus()
+      .then((status) => {
+        setEnvStatus({
+          hasEnvGeminiKey: status.hasEnvKey,
+          defaultModel: status.defaultModel,
+        });
+      })
       .catch((err) => console.warn('Env status check error:', err));
   }, []);
 
@@ -57,18 +62,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdateSe
     setFetchModelSuccess(false);
 
     try {
-      const res = await fetch('/api/fetch-models', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: formData.provider,
-          customApiKey: formData.customApiKey,
-          customEndpoint: formData.customEndpoint,
-        }),
+      const data = await fetchModels({
+        provider: formData.provider,
+        customApiKey: formData.customApiKey,
+        customEndpoint: formData.customEndpoint,
       });
 
-      const data = await res.json();
-      if (res.ok && data.success && Array.isArray(data.models)) {
+      if (data.success && Array.isArray(data.models)) {
         setFetchedModels(data.models);
         setFetchModelSuccess(true);
         if (data.models.length > 0 && !data.models.includes(formData.model)) {
@@ -89,27 +89,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdateSe
     setTestResult(null);
 
     try {
-      const res = await fetch('/api/test-connection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: formData.provider,
-          customApiKey: formData.customApiKey,
-          customEndpoint: formData.customEndpoint,
-          model: formData.model,
-        }),
+      const data = await testConnection({
+        provider: formData.provider,
+        customApiKey: formData.customApiKey,
+        customEndpoint: formData.customEndpoint,
+        model: formData.model,
       });
 
-      const data = await res.json();
-      if (res.ok && data.success) {
+      if (data.success) {
         setTestResult({
           success: true,
-          message: `连接成功！响应: "${data.message}" (模型: ${data.model})`,
+          message: `连接成功！响应: "${data.message}" (模型: ${data.model || formData.model})`,
         });
       } else {
         setTestResult({
           success: false,
-          message: data.error || '测试失败，请核对密钥或网络环境',
+          message: data.message || '测试失败，请核对密钥或网络环境',
         });
       }
     } catch (e: any) {

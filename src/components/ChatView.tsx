@@ -40,6 +40,7 @@ import {
 } from '../types';
 import { buildSystemInstruction, parseAIResponseTags } from '../utils/promptEngine';
 import { saveSingleStory } from '../utils/storage';
+import { streamChat } from '../utils/aiService';
 
 // Helper to ensure each character in save has their own independent set of stats
 function normalizeSaveStats(save: StorySave, characters: CharacterCard[]): GameStatDefinition[] {
@@ -588,73 +589,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       // Prepare payload messages
       const apiMessages = conversationHistory.map((m) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
+        role: (m.role === 'assistant' ? 'model' : 'user') as 'model' | 'user',
         text: m.content,
       }));
 
-      const res = await fetch('/api/chat/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: abortController.signal,
-        body: JSON.stringify({
-          provider: settings.provider,
-          model: settings.model,
-          customApiKey: settings.customApiKey,
-          customEndpoint: settings.customEndpoint,
-          temperature: settings.temperature,
-          systemInstruction,
-          messages: apiMessages,
-        }),
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => null);
-        throw new Error(errJson?.error || `服务请求失败 (${res.status})`);
-      }
-
-      if (!res.body) {
-        throw new Error('未接收到响应数据流');
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
       let accumulatedRaw = '';
-      let buffer = '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith('data: ')) {
-            const dataStr = trimmed.slice(6);
-            if (dataStr === '[DONE]') {
-              break;
-            }
-            try {
-              const parsed = JSON.parse(dataStr);
-              if (parsed.error) {
-                throw new Error(parsed.error);
-              }
-              if (parsed.text) {
-                accumulatedRaw += parsed.text;
-                // Parse on the fly to avoid flashing raw comment tags
-                const currentParsed = parseAIResponseTags(accumulatedRaw);
-                setStreamingContent(currentParsed.cleanText);
-              }
-            } catch (err: any) {
-              if (err.message && !err.message.includes('Unexpected token')) {
-                throw err;
-              }
-            }
-          }
-        }
-      }
+      await streamChat({
+        provider: settings.provider,
+        model: settings.model,
+        customApiKey: settings.customApiKey,
+        customEndpoint: settings.customEndpoint,
+        temperature: settings.temperature,
+        systemInstruction,
+        messages: apiMessages,
+        signal: abortController.signal,
+        onChunk: (textChunk) => {
+          accumulatedRaw += textChunk;
+          const currentParsed = parseAIResponseTags(accumulatedRaw);
+          setStreamingContent(currentParsed.cleanText);
+        },
+      });
 
       // Final post-processing
       const {
@@ -870,7 +825,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   return (
-    <div className="relative flex flex-col h-screen max-w-2xl mx-auto bg-slate-50 overflow-hidden">
+    <div className="relative flex flex-col h-screen h-[100dvh] max-w-2xl mx-auto bg-slate-50 overflow-hidden">
       {/* Top Header */}
       <header className="sticky top-0 z-30 px-3.5 py-2.5 bg-white/90 backdrop-blur-md border-b border-sky-100 flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-2.5 min-w-0">

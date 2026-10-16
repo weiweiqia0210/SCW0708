@@ -69,3 +69,21 @@
   border-color: rgba(56, 189, 248, 0.4);
   box-shadow: 0 8px 20px -4px rgba(186, 230, 253, 0.35);
 }
+
+/* Mobile device optimization */
+.safe-area-pb {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+.safe-area-pt {
+  padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
+}
+
+/* Prevent unwanted iOS Safari page zoom on focusing inputs */
+@media screen and (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
