@@ -127,8 +127,14 @@ export const CreateHubView: React.FC<CreateHubViewProps> = ({
       {activeTab === 'characters' && (
         <div className="space-y-2.5">
           {filteredCharacters.length === 0 ? (
-            <div className="py-12 text-center text-xs text-slate-400 bg-white rounded-2xl border border-dashed border-slate-200">
-              未找到匹配的角色卡
+            <div className="py-12 px-4 text-center text-xs text-slate-400 bg-white rounded-2xl border border-dashed border-slate-200 space-y-1.5">
+              <div className="text-base">📇</div>
+              <div className="font-medium text-slate-600">
+                {searchQuery ? '未找到匹配的角色卡' : '暂无角色卡'}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                {searchQuery ? '请尝试更换搜索关键词' : '点击右上角「新建」创建属于您的第一张角色卡'}
+              </div>
             </div>
           ) : (
             filteredCharacters.map((char) => (

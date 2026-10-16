@@ -137,9 +137,12 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const charIds = mode === 'single' ? [selectedCharacterId] : selectedMultiCharIds;
-    if (charIds.length === 0) {
-      alert('请至少选择一个角色');
+    const charIds =
+      mode === 'single'
+        ? (selectedCharacterId ? [selectedCharacterId] : [])
+        : selectedMultiCharIds;
+    if (charIds.length === 0 || !charIds[0]) {
+      alert('请先创建并选择至少一个角色');
       return;
     }
 
@@ -264,15 +267,20 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
               {mode === 'single' ? '选择互动角色' : '选择入局角色（可多选）'}
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-1">
-              {characters.map((char) => {
-                const isSelected =
-                  mode === 'single'
-                    ? selectedCharacterId === char.id
-                    : selectedMultiCharIds.includes(char.id);
+              {characters.length === 0 ? (
+                <div className="col-span-full py-5 text-center text-slate-400 text-xs bg-slate-50/70 rounded-xl border border-dashed border-slate-200 p-3">
+                  暂无角色卡，请先前往底栏「创作」模块新建角色卡
+                </div>
+              ) : (
+                characters.map((char) => {
+                  const isSelected =
+                    mode === 'single'
+                      ? selectedCharacterId === char.id
+                      : selectedMultiCharIds.includes(char.id);
 
-                return (
-                  <div
-                    key={char.id}
+                  return (
+                    <div
+                      key={char.id}
                     onClick={() => {
                       if (mode === 'single') setSelectedCharacterId(char.id);
                       else handleMultiCharToggle(char.id);
@@ -296,7 +304,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                     </div>
                   </div>
                 );
-              })}
+              }))}
             </div>
           </div>
 

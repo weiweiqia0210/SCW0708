@@ -1,36 +1,7 @@
 import { CharacterCard, WorldBook, SystemPreset, StorySave, AppSettings, UserMask } from '../types';
 import { DEFAULT_CHARACTERS, DEFAULT_WORLDBOOLS, DEFAULT_PRESETS, DEFAULT_APP_SETTINGS } from './defaultData';
 
-export const DEFAULT_USER_MASKS: UserMask[] = [
-  {
-    id: 'mask-default-1',
-    name: '林远',
-    codeName: '异乡客',
-    nickname: '阿远',
-    gender: '未明',
-    identity: '游历诸界的异域行者',
-    appearance: '一袭便于行动的深灰色旅行风衣，风尘仆仆，神情内敛微冷，指尖微有长期握笔与握剑的薄茧',
-    personality: '沉静观察、理智随和，面对未知保持审慎，底线分明且重情重义',
-    speechStyle: '简洁平和，不卑不亢，极少使用夸张情绪词',
-    customNotes: '随身佩戴一枚失落纪元的黄铜星盘；对本世界的各种奇特风俗略显陌生但极具自愈与适应力',
-    updatedAt: Date.now(),
-    createdAt: Date.now(),
-  },
-  {
-    id: 'mask-default-2',
-    name: '幽鸦',
-    codeName: '暗行者',
-    nickname: '小鸦',
-    gender: '未明',
-    identity: '隐匿于阴影中的潜行雇佣手',
-    appearance: '面戴遮掩口鼻的银纹面具，深黑兜帽，身手轻盈矫捷，目光如隼般锐利',
-    personality: '行事果决狠绝，重视契约利益，防备心极重，习惯以最坏恶意揣测他人',
-    speechStyle: '低沉干脆，惜字如金',
-    customNotes: '深谙各种暗杀、潜伏与情报刺探手段；一旦被生人直呼本名会瞬间警觉戒备',
-    updatedAt: Date.now(),
-    createdAt: Date.now(),
-  },
-];
+export const DEFAULT_USER_MASKS: UserMask[] = [];
 
 const STORAGE_KEYS = {
   CHARACTERS: 'ai_text_adventure_characters_v1',
@@ -52,7 +23,16 @@ export function loadCharacters(): CharacterCard[] {
       return DEFAULT_CHARACTERS;
     }
     const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : DEFAULT_CHARACTERS;
+    if (!Array.isArray(data)) return DEFAULT_CHARACTERS;
+
+    // Purge previous built-in default characters
+    const builtInIds = new Set(['char-ailun', 'char-eva', 'char-wenyucheng']);
+    if (data.some((c) => builtInIds.has(c.id))) {
+      const cleaned = data.filter((c) => !builtInIds.has(c.id));
+      saveCharacters(cleaned);
+      return cleaned;
+    }
+    return data;
   } catch (e) {
     console.error('Failed to load characters:', e);
     return DEFAULT_CHARACTERS;
@@ -205,7 +185,16 @@ export function loadUserMasks(): UserMask[] {
       return DEFAULT_USER_MASKS;
     }
     const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : DEFAULT_USER_MASKS;
+    if (!Array.isArray(data)) return DEFAULT_USER_MASKS;
+
+    // Purge previous built-in default user masks
+    const builtInMaskIds = new Set(['mask-default-1', 'mask-default-2']);
+    if (data.some((m) => builtInMaskIds.has(m.id))) {
+      const cleaned = data.filter((m) => !builtInMaskIds.has(m.id));
+      saveUserMasks(cleaned);
+      return cleaned;
+    }
+    return data;
   } catch (e) {
     console.error('Failed to load user masks:', e);
     return DEFAULT_USER_MASKS;
@@ -222,10 +211,16 @@ export function saveUserMasks(masks: UserMask[]): void {
 
 export function getActiveUserMaskId(): string | null {
   try {
-    const stored = localStorage.getItem(STORAGE_KEYS.ACTIVE_USER_MASK_ID);
-    if (stored) return stored;
     const masks = loadUserMasks();
-    return masks[0]?.id || null;
+    const stored = localStorage.getItem(STORAGE_KEYS.ACTIVE_USER_MASK_ID);
+    if (stored && masks.some((m) => m.id === stored)) {
+      return stored;
+    }
+    const fallback = masks[0]?.id || null;
+    if (!fallback && stored) {
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_USER_MASK_ID);
+    }
+    return fallback;
   } catch {
     return null;
   }

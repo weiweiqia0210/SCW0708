@@ -222,13 +222,17 @@ export default function App() {
 
   // Reset defaults
   const handleResetDefaults = () => {
-    setCharacters(DEFAULT_CHARACTERS);
-    saveCharacters(DEFAULT_CHARACTERS);
+    setCharacters([]);
+    saveCharacters([]);
     setWorldbooks(DEFAULT_WORLDBOOLS);
     saveWorldBooks(DEFAULT_WORLDBOOLS);
     setPresets(DEFAULT_PRESETS);
     savePresets(DEFAULT_PRESETS);
-    alert('已恢复内置默认角色卡、世界书与预设模板！');
+    setUserMasks([]);
+    saveUserMasks([]);
+    setActiveUserMaskIdState(null);
+    setActiveUserMaskId(null);
+    alert('已重置配置（自带角色卡与玩家面具已清空，保留默认世界书与预设模板）！');
   };
 
   // Active story save for ChatView

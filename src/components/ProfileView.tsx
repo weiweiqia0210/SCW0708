@@ -484,11 +484,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       <div className="p-4 bg-white rounded-2xl border border-slate-100 space-y-2 shadow-xs">
         <div className="text-slate-600 font-medium">重置与初始模板</div>
         <div className="text-[11px] text-slate-400 leading-relaxed">
-          若您希望重新获取官方默认内置的 3 张角色卡、2 部世界书和预设，可点击恢复（不会主动删除您既有的存档与面具）。
+          若您希望重新获取官方默认内置的世界书和预设模板，可点击恢复（不会主动删除您既有的故事存档）。
         </div>
         <button
           onClick={() => {
-            if (confirm('确认恢复默认角色卡、世界书与预设吗？')) {
+            if (confirm('确认恢复默认世界书与预设模板吗？')) {
               onResetDefaults();
             }
           }}
