@@ -46,7 +46,22 @@ export const HomeView: React.FC<HomeViewProps> = ({
   };
 
   return (
-    <div className="max-w-xl mx-auto px-4 pt-4 pb-24 space-y-5">
+    <div className="max-w-xl mx-auto px-4 pt-4 pb-24 space-y-4">
+      {/* Brand Header */}
+      <div className="flex items-center justify-between px-1 pt-0.5 pb-1">
+        <div className="flex items-center gap-2.5">
+          <img
+            src="./icons/icon-192.png"
+            alt="塔可"
+            className="w-9 h-9 rounded-xl shadow-xs border border-sky-100 object-contain bg-white p-0.5"
+          />
+          <div>
+            <h1 className="text-base font-bold text-slate-800 tracking-tight leading-none">塔可</h1>
+            <p className="text-[10px] text-slate-400 mt-1">清透水色 · 沉浸式 AI 互动文游</p>
+          </div>
+        </div>
+      </div>
+
       {/* Top Action Row: Continue Last Played or Start New */}
       {latestSave ? (
         <div className="relative overflow-hidden rounded-2xl border border-sky-200/80 bg-gradient-to-br from-white via-sky-50/40 to-sky-100/30 p-4 shadow-sm shadow-sky-100">

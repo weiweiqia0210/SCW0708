@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   User,
   HardDrive,
@@ -13,6 +13,7 @@ import {
   Check,
   Shield,
   MessageSquare,
+  CheckCircle2,
 } from 'lucide-react';
 import { AppSettings, CharacterCard, WorldBook, SystemPreset, StorySave, UserMask } from '../types';
 import { exportAllDataJson, importAllDataJson, downloadJsonFile } from '../utils/storage';
@@ -51,6 +52,41 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [editingMask, setEditingMask] = useState<UserMask | null>(null);
   const [isMaskModalOpen, setIsMaskModalOpen] = useState(false);
   const [confirmDeleteMaskId, setConfirmDeleteMaskId] = useState<string | null>(null);
+
+  // PWA Install Prompt State
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [isInstalled, setIsInstalled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true
+    );
+  });
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', () => {
+      setIsInstalled(true);
+      setInstallPrompt(null);
+    });
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    if (choice?.outcome === 'accepted') {
+      setIsInstalled(true);
+      setInstallPrompt(null);
+    }
+  };
 
   const handleExportAll = () => {
     const jsonStr = exportAllDataJson();
@@ -99,6 +135,48 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             单机持久化存储 · 支持多套玩家面具人设切换
           </div>
         </div>
+      </div>
+
+      {/* PWA Mobile Installation Card */}
+      <div className="p-4 bg-gradient-to-br from-white via-sky-50/40 to-sky-100/20 rounded-2xl border border-sky-100 shadow-xs flex flex-col gap-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <img
+              src="./icons/icon-192.png"
+              alt="塔可"
+              className="w-10 h-10 rounded-xl border border-sky-200/80 shadow-xs object-contain bg-white p-0.5"
+            />
+            <div>
+              <div className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
+                <span>塔可 PWA 桌面应用</span>
+                {isInstalled && (
+                  <span className="inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-medium border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3" />
+                    已安装
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-0.5">
+                支持安卓与 iOS 手机桌面免边框独立全屏运行
+              </div>
+            </div>
+          </div>
+          {installPrompt && !isInstalled && (
+            <button
+              onClick={handleInstallClick}
+              className="px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-medium text-xs shadow-sm shadow-sky-200 transition-all cursor-pointer"
+            >
+              一键安装
+            </button>
+          )}
+        </div>
+        {!isInstalled && (
+          <div className="text-[11px] text-slate-500 bg-white/80 p-2.5 rounded-xl border border-sky-100/60 leading-relaxed space-y-1">
+            <div className="font-medium text-slate-700">📱 手机安装步骤：</div>
+            <div>• <b>安卓 (Chrome / Edge / 微信)</b>：{installPrompt ? '点击上方「一键安装」，或' : ''}在浏览器右上角菜单点击「添加至主屏幕 / 安装应用」。</div>
+            <div>• <b>苹果 iPhone (Safari)</b>：点击底部「分享」按钮 ➡️ 选择「添加到主屏幕」。</div>
+          </div>
+        )}
       </div>
 
       {/* User Masks (Player Identity Profiles) Management */}
