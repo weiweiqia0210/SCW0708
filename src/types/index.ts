@@ -113,7 +113,7 @@ export interface StorySaveConfig {
   wordCountConstraintEnabled?: boolean; // 每次输出字数开关：关=ai自由发挥，开=遵循填入字数区间
   wordCountMin?: number; // 最小字数 (例如 300)
   wordCountMax?: number; // 最大字数 (例如 800)
-  narrativePerspective?: 'first' | 'second' | 'third'; // 人称代词：第一人称(我) / 第二人称(你) / 第三人称(他/她)
+  narrativePerspective?: 'first' | 'second' | 'third'; // 人称代词：第一人称(我) / 第二人称(你) / 第三人称(姓名/他/她)
   antiImpersonationEnabled?: boolean; // 防抢话开关：开启则严禁代替玩家发言做决策
   playMode?: 'dialogue' | 'director'; // 对话模式(直接承接发言) / 导演模式(作为场景指导推演)
   writingGuidance?: string; // 本场写作指导

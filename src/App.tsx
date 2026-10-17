@@ -252,6 +252,7 @@ export default function App() {
           settings={settings}
           onBack={handleExitChat}
           onUpdateSave={handleUpdateStorySave}
+          onSavePreset={handleSavePreset}
         />
       ) : (
         /* Standard Navigation Views */

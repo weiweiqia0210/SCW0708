@@ -10,6 +10,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  ChevronsUp,
+  ChevronUp,
+  ChevronsDown,
   Sparkles,
   Heart,
   Shield,
@@ -25,6 +28,7 @@ import {
   User,
   Plus,
   Trash2,
+  SlidersHorizontal,
 } from 'lucide-react';
 import {
   StorySave,
@@ -216,6 +220,7 @@ interface ChatViewProps {
   settings: AppSettings;
   onBack: () => void;
   onUpdateSave: (updated: StorySave) => void;
+  onSavePreset?: (preset: SystemPreset) => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -228,6 +233,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   settings,
   onBack,
   onUpdateSave,
+  onSavePreset,
 }) => {
   const [currentSave, setCurrentSave] = useState<StorySave>(() => ({
     ...save,
@@ -243,12 +249,29 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeDrawerTab, setActiveDrawerTab] = useState<'stats' | 'characters' | 'worldbook' | 'settings'>('stats');
 
-  // Edit user message
+  // Edit message (supports both user and AI narrative messages)
   const [editingMsgIndex, setEditingMsgIndex] = useState<number | null>(null);
   const [editingMsgText, setEditingMsgText] = useState('');
 
   // Delete message confirmation
   const [confirmDeleteMsgIndex, setConfirmDeleteMsgIndex] = useState<number | null>(null);
+
+  // Revision modal state (更多 -> 指导重修)
+  const [isRevisionModalOpen, setIsRevisionModalOpen] = useState(false);
+  const [revisionMsgIndex, setRevisionMsgIndex] = useState<number | null>(null);
+  const [revisionOriginalText, setRevisionOriginalText] = useState('');
+  const [revisionCritique, setRevisionCritique] = useState('');
+  const [revisionPlan, setRevisionPlan] = useState('');
+  const [revisionDialogue, setRevisionDialogue] = useState<
+    { id: string; role: 'user' | 'assistant'; content: string }[]
+  >([]);
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+
+  // Revision 3 application targets (all can be checked together)
+  const [revisionApplyReroll, setRevisionApplyReroll] = useState(true);
+  const [revisionApplySession, setRevisionApplySession] = useState(false);
+  const [revisionApplyPreset, setRevisionApplyPreset] = useState(false);
 
   // Character card expand states in stats drawer (default expanded)
   const [expandedCharacterCards, setExpandedCharacterCards] = useState<Record<string, boolean>>({});
@@ -353,6 +376,113 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   }, [currentSave.messages, streamingContent, isStreaming]);
 
+  // Chat History Quick Navigation (平时隐藏，滑动时显现，停止滑动1.5秒后隐藏)
+  const mainContainerRef = useRef<HTMLElement>(null);
+  const [isNavVisible, setIsNavVisible] = useState(false);
+  const navHideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const resetNavHideTimer = () => {
+    if (navHideTimeoutRef.current) {
+      clearTimeout(navHideTimeoutRef.current);
+    }
+    navHideTimeoutRef.current = setTimeout(() => {
+      setIsNavVisible(false);
+    }, 1500);
+  };
+
+  const handleMessagesScroll = () => {
+    setIsNavVisible(true);
+    resetNavHideTimer();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (navHideTimeoutRef.current) {
+        clearTimeout(navHideTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleNavScrollToTop = () => {
+    const container = mainContainerRef.current;
+    if (!container) return;
+    container.scrollTo({ top: 0, behavior: 'smooth' });
+    setIsNavVisible(true);
+    resetNavHideTimer();
+  };
+
+  const handleNavScrollToPrev = () => {
+    const container = mainContainerRef.current;
+    if (!container) return;
+    const items = Array.from(container.querySelectorAll<HTMLElement>('[data-chat-item]'));
+    if (items.length === 0) {
+      container.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    const currentScrollTop = container.scrollTop;
+    let targetItem: HTMLElement | null = null;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (item.offsetTop < currentScrollTop - 25) {
+        targetItem = item;
+        break;
+      }
+    }
+
+    if (targetItem) {
+      container.scrollTo({
+        top: Math.max(0, targetItem.offsetTop - 12),
+        behavior: 'smooth',
+      });
+    } else {
+      container.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    setIsNavVisible(true);
+    resetNavHideTimer();
+  };
+
+  const handleNavScrollToNext = () => {
+    const container = mainContainerRef.current;
+    if (!container) return;
+    const items = Array.from(container.querySelectorAll<HTMLElement>('[data-chat-item]'));
+    if (items.length === 0) {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+      return;
+    }
+
+    const currentScrollTop = container.scrollTop;
+    let targetItem: HTMLElement | null = null;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.offsetTop > currentScrollTop + 25) {
+        targetItem = item;
+        break;
+      }
+    }
+
+    if (targetItem) {
+      container.scrollTo({
+        top: targetItem.offsetTop - 12,
+        behavior: 'smooth',
+      });
+    } else {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    }
+
+    setIsNavVisible(true);
+    resetNavHideTimer();
+  };
+
+  const handleNavScrollToBottom = () => {
+    const container = mainContainerRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    setIsNavVisible(true);
+    resetNavHideTimer();
+  };
+
   // Active characters, worldbook, preset, user mask
   const activeChars = characters.filter((c) => currentSave.characterIds.includes(c.id));
   const activeWorldBook = worldbooks.find((wb) => wb.id === currentSave.worldBookId);
@@ -441,13 +571,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   // Regenerate last AI message (with branch preservation!)
-  const handleRegenerate = async (msgIndex: number) => {
+  const handleRegenerate = async (msgIndex: number, additionalGuidance?: string) => {
     if (isStreaming || msgIndex < 0) return;
     setErrorMessage(null);
 
     // History up to the message before this AI response
     const historyMessages = currentSave.messages.slice(0, msgIndex);
-    await executeAIStream(currentSave, historyMessages, msgIndex);
+    await executeAIStream(currentSave, historyMessages, msgIndex, additionalGuidance);
   };
 
   // Continue generation
@@ -524,6 +654,159 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setEditingMsgText('');
   };
 
+  // Save AI message modification
+  const handleSaveAiMsg = (index: number) => {
+    if (!currentSave || !editingMsgText.trim()) return;
+    const targetMsg = currentSave.messages[index];
+    if (!targetMsg) return;
+
+    const newContent = editingMsgText.trim();
+    const currentBranchIdx = targetMsg.currentBranchIndex || 0;
+    const updatedBranches =
+      targetMsg.branches && targetMsg.branches.length > 0
+        ? targetMsg.branches.map((b, bIdx) =>
+            bIdx === currentBranchIdx ? { ...b, text: newContent } : b
+          )
+        : [{ id: `branch-${Date.now()}`, text: newContent, timestamp: Date.now() }];
+
+    const updatedMsg: ChatMessage = {
+      ...targetMsg,
+      content: newContent,
+      branches: updatedBranches,
+    };
+
+    const newMessages = [...currentSave.messages];
+    newMessages[index] = updatedMsg;
+
+    const nextSave: StorySave = {
+      ...currentSave,
+      messages: newMessages,
+      updatedAt: Date.now(),
+    };
+
+    commitSave(nextSave);
+    setEditingMsgIndex(null);
+    setEditingMsgText('');
+  };
+
+  // Open Guided Revision Modal (指导重修)
+  const handleOpenRevisionModal = (msgIndex: number) => {
+    const msg = currentSave.messages[msgIndex];
+    if (!msg) return;
+    setRevisionMsgIndex(msgIndex);
+    setRevisionOriginalText(msg.content);
+    setRevisionDialogue([]);
+    setRevisionCritique('');
+    setRevisionPlan('');
+    setPlanError(null);
+    setRevisionApplyReroll(true);
+    setRevisionApplySession(false);
+    setRevisionApplyPreset(false);
+    setIsRevisionModalOpen(true);
+  };
+
+  // User communicates with AI about unreasonableness / critique and generates plan
+  const handleSendRevisionDialogue = async (customText?: string) => {
+    const textToSend = (typeof customText === 'string' ? customText : revisionCritique).trim();
+    if (!textToSend || isGeneratingPlan) return;
+
+    const userEntry = {
+      id: `rev-u-${Date.now()}`,
+      role: 'user' as const,
+      content: textToSend,
+    };
+    const nextDialogue = [...revisionDialogue, userEntry];
+    setRevisionDialogue(nextDialogue);
+    setRevisionCritique('');
+    setIsGeneratingPlan(true);
+    setPlanError(null);
+
+    const dialogueMessages = nextDialogue.map((d) => ({
+      role: (d.role === 'assistant' ? 'model' : 'user') as 'model' | 'user',
+      text: d.content,
+    }));
+
+    try {
+      let accumulated = '';
+      await streamChat({
+        provider: settings.provider,
+        model: settings.model,
+        customApiKey: settings.customApiKey,
+        customEndpoint: settings.customEndpoint,
+        temperature: 0.7,
+        systemInstruction: `你是一名资深互动文游评审与叙事顾问。玩家正在与你讨论AI生成段落的不合理之处。
+【待重修段落原文】：
+${revisionOriginalText}
+
+请认真倾听玩家提出的不合理之处与修改要求，与玩家对话，并输出精炼、切中要害、可直接落地的【重修执行方案】（包含核心问题纠偏、动作与心理细节修正建议、需规避的禁忌，控制在150-250字）。输出请直接给出分析与重修方案，方便落地实施。`,
+        messages: dialogueMessages,
+        onChunk: (chunk) => {
+          accumulated += chunk;
+          setRevisionPlan(accumulated);
+        },
+      });
+
+      const assistantEntry = {
+        id: `rev-a-${Date.now()}`,
+        role: 'assistant' as const,
+        content: accumulated,
+      };
+      setRevisionDialogue((prev) => [...prev, assistantEntry]);
+      setRevisionPlan(accumulated);
+    } catch (e: any) {
+      setPlanError(e?.message || '与 AI 对话生成方案失败，请重试');
+    } finally {
+      setIsGeneratingPlan(false);
+    }
+  };
+
+  // Apply revision proposal (3 options can be chosen together)
+  const handleApplyRevision = async () => {
+    if (!revisionPlan.trim() || revisionMsgIndex === null) return;
+
+    let updatedSave = { ...currentSave };
+
+    // 1. 适用于本场
+    if (revisionApplySession) {
+      const existingGuidance = updatedSave.config.writingGuidance?.trim() || '';
+      const appended = existingGuidance
+        ? `${existingGuidance}\n【重修方案】：${revisionPlan.trim()}`
+        : `【重修方案】：${revisionPlan.trim()}`;
+      updatedSave = {
+        ...updatedSave,
+        config: {
+          ...updatedSave.config,
+          writingGuidance: appended,
+        },
+        updatedAt: Date.now(),
+      };
+      commitSave(updatedSave);
+    }
+
+    // 2. 保存到预设
+    if (revisionApplyPreset && activePreset && onSavePreset) {
+      const currentPrompt = activePreset.contentPrompt?.trim() || '';
+      const updatedPrompt = currentPrompt
+        ? `${currentPrompt}\n\n【重修经验沉淀】：\n${revisionPlan.trim()}`
+        : `【重修经验沉淀】：\n${revisionPlan.trim()}`;
+      const nextPreset: SystemPreset = {
+        ...activePreset,
+        contentPrompt: updatedPrompt,
+        updatedAt: Date.now(),
+      };
+      onSavePreset(nextPreset);
+    }
+
+    // 3. 依据方案重roll这段
+    const targetIdx = revisionMsgIndex;
+    const planToUse = revisionPlan.trim();
+    setIsRevisionModalOpen(false);
+
+    if (revisionApplyReroll) {
+      await handleRegenerate(targetIdx, planToUse);
+    }
+  };
+
   // Delete message at index
   const handleDeleteMessage = (msgIndex: number) => {
     if (msgIndex < 0 || msgIndex >= currentSave.messages.length) return;
@@ -570,7 +853,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const executeAIStream = async (
     activeSaveState: StorySave,
     conversationHistory: ChatMessage[],
-    regenerateAtMsgIndex?: number
+    regenerateAtMsgIndex?: number,
+    additionalGuidance?: string
   ) => {
     setIsStreaming(true);
     setStreamingContent('');
@@ -579,13 +863,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
     abortControllerRef.current = abortController;
 
     try {
-      const systemInstruction = buildSystemInstruction(
+      let systemInstruction = buildSystemInstruction(
         activeSaveState,
         characters,
         activeWorldBook,
         activePreset,
         activeUserMask
       );
+
+      if (additionalGuidance && additionalGuidance.trim()) {
+        systemInstruction += `\n\n【本轮精修特别指导（最高执行优先级）】：\n玩家对上一版提出了修改意见，并制定了以下重修指导方案。你必须严格结合此方案对本轮剧情进行脱胎换骨式的重新演绎与润色：\n${additionalGuidance.trim()}`;
+      }
+
+      if (activeSaveState.config.antiImpersonationEnabled !== false) {
+        const playerName = activeUserMask?.name ? `玩家（${activeUserMask.name}）` : '玩家（User）';
+        systemInstruction += `\n\n【🚨 终极输出红线（防抢话已开启，绝对禁止扮演玩家）】：
+你【只能扮演 NPC 与描写客观环境】，绝对禁止扮演${playerName}！
+1. 严禁替${playerName}写出任何台词（严禁给玩家加双引号“...”说出任何话语）；
+2. 严禁替${playerName}做出任何主动动作决策；
+3. 严禁描写${playerName}的主观内心感受；
+4. 描写完 NPC 对玩家上一句话的反应与客观环境后，必须立即刹车停笔，交还发言权等待玩家在输入框中自主输入！`;
+      }
 
       // Prepare payload messages
       const apiMessages = conversationHistory.map((m) => ({
@@ -870,9 +1168,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </header>
 
       {/* Main Messages Container */}
-      <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <main
+        ref={mainContainerRef}
+        onScroll={handleMessagesScroll}
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
+      >
         {/* Story Opening Card */}
-        <div className="p-3.5 rounded-2xl bg-gradient-to-br from-white via-sky-50/30 to-blue-50/20 border border-sky-100/80 shadow-xs">
+        <div
+          data-chat-item="premise"
+          className="p-3.5 rounded-2xl bg-gradient-to-br from-white via-sky-50/30 to-blue-50/20 border border-sky-100/80 shadow-xs"
+        >
           <div className="flex items-center gap-1.5 text-xs font-semibold text-sky-700 mb-1">
             <Sparkles className="w-3.5 h-3.5" />
             故事开局背景
@@ -893,6 +1198,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
           return (
             <div
               key={msg.id}
+              data-chat-item="message"
+              data-msg-index={index}
+              id={`chat-msg-${index}`}
               className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} space-y-1.5`}
             >
               {/* User Message */}
@@ -1010,11 +1318,42 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <div className="w-full space-y-2">
                   <div className="w-full p-4 rounded-2xl bg-white border border-sky-100/80 shadow-xs space-y-3">
                     {/* Main Story Narrative Prose (with inline collapsible thoughts where they occur) */}
-                    <div
-                      className={`text-slate-800 ${fontClass} ${fontSizeClass} ${lineSpacingClass}`}
-                    >
-                      {renderFormattedProse(msg.content, msg.id)}
-                    </div>
+                    {editingMsgIndex === index ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={editingMsgText}
+                          onChange={(e) => setEditingMsgText(e.target.value)}
+                          className="w-full p-3 rounded-xl border border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 text-xs sm:text-sm text-slate-800 leading-relaxed bg-white"
+                          rows={7}
+                        />
+                        <div className="flex items-center justify-end gap-2 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingMsgIndex(null);
+                              setEditingMsgText('');
+                            }}
+                            className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 font-medium transition-colors cursor-pointer"
+                          >
+                            取消
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveAiMsg(index)}
+                            className="px-3 py-1 rounded-lg bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-medium shadow-xs shadow-sky-200 transition-all flex items-center gap-1 cursor-pointer"
+                          >
+                            <Check className="w-3 h-3" />
+                            保存修改
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        className={`text-slate-800 ${fontClass} ${fontSizeClass} ${lineSpacingClass}`}
+                      >
+                        {renderFormattedProse(msg.content, msg.id)}
+                      </div>
+                    )}
 
                     {/* Numerical Stats Delta Badge - Separated by character & Folded by default */}
                     {(() => {
@@ -1126,41 +1465,58 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         <div />
                       )}
 
-                      {/* Actions */}
-                      <div className="flex items-center gap-2 text-[11px]">
+                      {/* Actions - Clean Icon Buttons */}
+                      <div className="flex items-center gap-1 text-[11px]">
+                        <button
+                          onClick={() => {
+                            setEditingMsgIndex(index);
+                            setEditingMsgText(msg.content);
+                          }}
+                          className="hover:text-sky-600 p-1 rounded-md hover:bg-sky-50 transition-colors cursor-pointer text-slate-500"
+                          title="编辑"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={() => handleCopy(msg.id, msg.content)}
-                          className="hover:text-sky-600 flex items-center gap-0.5 transition-colors cursor-pointer"
+                          className="hover:text-sky-600 p-1 rounded-md hover:bg-sky-50 transition-colors cursor-pointer text-slate-500"
+                          title="复制"
                         >
                           {copiedId === msg.id ? (
                             <Check className="w-3.5 h-3.5 text-emerald-500" />
                           ) : (
                             <Copy className="w-3.5 h-3.5" />
                           )}
-                          复制
                         </button>
                         <button
                           disabled={isStreaming}
                           onClick={() => handleRegenerate(index)}
-                          className="hover:text-sky-600 flex items-center gap-0.5 transition-colors cursor-pointer disabled:opacity-50"
-                          title="保留原有剧情，生成新的备选剧情分支"
+                          className="hover:text-sky-600 p-1 rounded-md hover:bg-sky-50 transition-colors cursor-pointer disabled:opacity-50 text-slate-500"
+                          title="重选分支"
                         >
                           <RefreshCw className="w-3.5 h-3.5" />
-                          重选分支
+                        </button>
+                        <button
+                          disabled={isStreaming}
+                          onClick={() => handleOpenRevisionModal(index)}
+                          className="hover:text-sky-600 p-1 rounded-md hover:bg-sky-50 transition-colors cursor-pointer text-slate-500"
+                          title="更多（指导重修）"
+                        >
+                          <SlidersHorizontal className="w-3.5 h-3.5" />
                         </button>
                         {isLastAssistantMsg && (
                           <button
                             disabled={isStreaming}
                             onClick={handleContinueGeneration}
-                            className="hover:text-sky-600 flex items-center gap-0.5 transition-colors cursor-pointer disabled:opacity-50"
+                            className="hover:text-sky-600 p-1 rounded-md hover:bg-sky-50 transition-colors cursor-pointer disabled:opacity-50 text-slate-500"
+                            title="继续生成"
                           >
                             <Plus className="w-3.5 h-3.5" />
-                            继续生成
                           </button>
                         )}
                         {confirmDeleteMsgIndex === index ? (
-                          <span className="flex items-center gap-1 bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded border border-rose-200 text-[10px]">
-                            <span>删除此段?</span>
+                          <span className="flex items-center gap-1 bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded-md border border-rose-200 text-[10px]">
+                            <span>删除?</span>
                             <button
                               onClick={() => handleDeleteMessage(index)}
                               className="font-bold text-rose-700 hover:underline px-0.5 cursor-pointer"
@@ -1177,11 +1533,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         ) : (
                           <button
                             onClick={() => setConfirmDeleteMsgIndex(index)}
-                            className="hover:text-rose-600 flex items-center gap-0.5 transition-colors cursor-pointer text-slate-400"
-                            title="删除这段话"
+                            className="hover:text-rose-600 p-1 rounded-md hover:bg-rose-50 transition-colors cursor-pointer text-slate-400"
+                            title="删除"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
-                            删除
                           </button>
                         )}
                       </div>
@@ -1248,6 +1603,65 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
         <div ref={messagesEndRef} className="h-2" />
       </main>
+
+      {/* 聊天记录快速导航 (平时隐藏，滑动时显现，停止滑动1.5秒后自动隐藏) */}
+      <div
+        onMouseEnter={() => {
+          setIsNavVisible(true);
+          if (navHideTimeoutRef.current) clearTimeout(navHideTimeoutRef.current);
+        }}
+        onMouseLeave={resetNavHideTimer}
+        onTouchStart={() => {
+          setIsNavVisible(true);
+          resetNavHideTimer();
+        }}
+        className={`fixed right-2.5 sm:right-4 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-2 transition-all duration-300 ease-out select-none ${
+          isNavVisible
+            ? 'opacity-100 translate-x-0 pointer-events-auto'
+            : 'opacity-0 translate-x-3 pointer-events-none'
+        }`}
+        aria-label="聊天记录快速导航"
+      >
+        {/* 1. 回到聊天最顶端 ⏫ */}
+        <button
+          type="button"
+          onClick={handleNavScrollToTop}
+          className="w-8 h-8 rounded-full bg-white/85 hover:bg-white text-slate-600 hover:text-sky-600 shadow-md backdrop-blur-md border border-slate-200/80 active:scale-90 transition-all flex items-center justify-center cursor-pointer"
+          title="回到聊天最顶端 (⏫)"
+        >
+          <ChevronsUp className="w-4 h-4" />
+        </button>
+
+        {/* 2. 上一条消息 ↑ */}
+        <button
+          type="button"
+          onClick={handleNavScrollToPrev}
+          className="w-8 h-8 rounded-full bg-white/85 hover:bg-white text-slate-600 hover:text-sky-600 shadow-md backdrop-blur-md border border-slate-200/80 active:scale-90 transition-all flex items-center justify-center cursor-pointer"
+          title="上一条消息 (↑)"
+        >
+          <ChevronUp className="w-4 h-4" />
+        </button>
+
+        {/* 3. 下一条消息 ↓ */}
+        <button
+          type="button"
+          onClick={handleNavScrollToNext}
+          className="w-8 h-8 rounded-full bg-white/85 hover:bg-white text-slate-600 hover:text-sky-600 shadow-md backdrop-blur-md border border-slate-200/80 active:scale-90 transition-all flex items-center justify-center cursor-pointer"
+          title="下一条消息 (↓)"
+        >
+          <ChevronDown className="w-4 h-4" />
+        </button>
+
+        {/* 4. 跳到最新消息 ⏬ */}
+        <button
+          type="button"
+          onClick={handleNavScrollToBottom}
+          className="w-8 h-8 rounded-full bg-white/85 hover:bg-white text-slate-600 hover:text-sky-600 shadow-md backdrop-blur-md border border-slate-200/80 active:scale-90 transition-all flex items-center justify-center cursor-pointer"
+          title="跳到最新消息 (⏬)"
+        >
+          <ChevronsDown className="w-4 h-4" />
+        </button>
+      </div>
 
       {/* Fixed Bottom Input Bar */}
       <footer className="sticky bottom-0 z-30 p-2.5 sm:p-3 bg-white/95 backdrop-blur-md border-t border-sky-100 shadow-[0_-2px_10px_rgba(186,230,253,0.15)] safe-area-pb">
@@ -1975,7 +2389,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       {[
                         { key: 'first', label: '第一人称', sub: '使用“我”' },
                         { key: 'second', label: '第二人称', sub: '使用“你”' },
-                        { key: 'third', label: '第三人称', sub: '使用他/她' },
+                        { key: 'third', label: '第三人称', sub: '姓名 / 他 / 她' },
                       ].map((item) => {
                         const currentPerspective = currentSave.config.narrativePerspective || 'second';
                         const isSelected = currentPerspective === item.key;
@@ -1999,7 +2413,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                 : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                             }`}
                           >
-                            <div className="text-xs">{item.label}</div>
+                            <div className="text-[11px] font-semibold leading-tight">{item.label}</div>
                             <div className="text-[10px] text-slate-400 mt-0.5">{item.sub}</div>
                           </button>
                         );
@@ -2206,6 +2620,225 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Guided Revision Modal (更多 -> 指导重修) */}
+      {isRevisionModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="w-full max-w-lg bg-white rounded-2xl border border-sky-100 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-sky-50/60 to-white">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center">
+                  <SlidersHorizontal className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-800 text-sm">指导重修</h3>
+                  <p className="text-[10px] text-slate-400">指出本段不合理，由 AI 提炼方案并按需应用</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRevisionModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 overflow-y-auto space-y-3.5 text-xs">
+              {/* Original snippet */}
+              <div className="space-y-1">
+                <span className="text-[11px] font-medium text-slate-500">待重修段落摘录：</span>
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-[11px] max-h-24 overflow-y-auto leading-relaxed">
+                  {revisionOriginalText}
+                </div>
+              </div>
+
+              {/* Dialogue with AI Area */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+                    <MessageSquare className="w-3.5 h-3.5 text-sky-500" />
+                    <span>与 AI 对话提出不合理与要求</span>
+                    <span className="text-rose-500">*</span>
+                  </label>
+                  {revisionDialogue.length > 0 && (
+                    <span className="text-[10px] text-slate-400">已进行 {Math.ceil(revisionDialogue.length / 2)} 轮对话</span>
+                  )}
+                </div>
+
+                {/* Dialogue History Stream */}
+                {revisionDialogue.length > 0 && (
+                  <div className="space-y-2 max-h-48 overflow-y-auto p-2.5 rounded-xl bg-slate-50/70 border border-slate-200">
+                    {revisionDialogue.map((turn) => (
+                      <div
+                        key={turn.id}
+                        className={`flex flex-col ${turn.role === 'user' ? 'items-end' : 'items-start'}`}
+                      >
+                        <span className="text-[10px] text-slate-400 mb-0.5 px-1">
+                          {turn.role === 'user' ? '玩家意见' : 'AI 评审建议与方案'}
+                        </span>
+                        <div
+                          className={`p-2.5 rounded-xl text-xs leading-relaxed max-w-[92%] whitespace-pre-wrap ${
+                            turn.role === 'user'
+                              ? 'bg-sky-500 text-white rounded-tr-xs shadow-xs'
+                              : 'bg-white border border-sky-100 text-slate-700 rounded-tl-xs shadow-xs'
+                          }`}
+                        >
+                          {turn.content}
+                        </div>
+                      </div>
+                    ))}
+                    {isGeneratingPlan && (
+                      <div className="flex flex-col items-start">
+                        <span className="text-[10px] text-slate-400 mb-0.5 px-1">AI 评审分析中</span>
+                        <div className="p-2.5 rounded-xl bg-white border border-sky-200 text-sky-600 text-xs rounded-tl-xs shadow-xs animate-pulse">
+                          正在结合上下文推演分析并生成方案……
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Input Area */}
+                <div className="space-y-1.5">
+                  <textarea
+                    value={revisionCritique}
+                    onChange={(e) => setRevisionCritique(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendRevisionDialogue();
+                      }
+                    }}
+                    placeholder={
+                      revisionDialogue.length === 0
+                        ? "指出这段的不合理之处（例如：人物性格转变太突然缺少铺垫、忽视了刚刚的负伤情节、环境氛围不够烘托、或者希望语言更凝练克制…… 按回车或点击按钮发送）"
+                        : "继续提出补充修改意见或调整要求（按回车发送）..."
+                    }
+                    rows={2}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-sky-400 text-slate-800 leading-relaxed bg-white text-xs placeholder:text-slate-400"
+                  />
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-slate-400">支持多轮对话持续调整重修方案</span>
+                    <button
+                      type="button"
+                      disabled={isGeneratingPlan || !revisionCritique.trim()}
+                      onClick={() => handleSendRevisionDialogue()}
+                      className="px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-medium text-xs shadow-xs shadow-sky-200 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>{isGeneratingPlan ? '正在分析提炼中...' : revisionDialogue.length > 0 ? '发送并更新方案' : '与 AI 对话并生成方案'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Error if plan generation fails */}
+              {planError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+                  {planError}
+                </div>
+              )}
+
+              {/* AI Generated Revision Proposal Display / Editable Target */}
+              {(revisionPlan || isGeneratingPlan) && (
+                <div className="space-y-1.5 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-sky-800 flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-sky-500" />
+                      <span>当前执行重修方案（可直接微调）：</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">将作为重roll或预设的指导输入</span>
+                  </div>
+                  <textarea
+                    value={revisionPlan}
+                    onChange={(e) => setRevisionPlan(e.target.value)}
+                    rows={3}
+                    placeholder="AI 提炼的重修方案将在此显示，您可以直接编辑修改……"
+                    className="w-full p-2.5 rounded-xl bg-sky-50/70 border border-sky-200 text-slate-800 text-xs leading-relaxed focus:outline-none focus:border-sky-400 focus:bg-white transition-all"
+                  />
+                </div>
+              )}
+
+              {/* 3 Application Targets (Checkboxes - can all be selected together) */}
+              <div className="pt-2 border-t border-slate-100 space-y-2">
+                <span className="text-[11px] font-semibold text-slate-700 block">
+                  方案应用目标（三个可以一起选）：
+                </span>
+
+                <div className="space-y-1.5">
+                  {/* Choice 1: 依据方案重roll这段 */}
+                  <label className="flex items-start gap-2.5 p-2 rounded-xl border border-slate-200 hover:border-sky-300 bg-white cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={revisionApplyReroll}
+                      onChange={(e) => setRevisionApplyReroll(e.target.checked)}
+                      className="accent-sky-500 w-4 h-4 rounded cursor-pointer mt-0.5 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-slate-800 text-xs">依据方案重roll这段</div>
+                      <div className="text-[10px] text-slate-400">结合上述方案重新演绎并生成本段 AI 剧情输出</div>
+                    </div>
+                  </label>
+
+                  {/* Choice 2: 适用于本场 */}
+                  <label className="flex items-start gap-2.5 p-2 rounded-xl border border-slate-200 hover:border-sky-300 bg-white cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={revisionApplySession}
+                      onChange={(e) => setRevisionApplySession(e.target.checked)}
+                      className="accent-sky-500 w-4 h-4 rounded cursor-pointer mt-0.5 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-slate-800 text-xs">适用于本场</div>
+                      <div className="text-[10px] text-slate-400">沉淀为当前故事档案的专属写作指导，后续交互持续生效</div>
+                    </div>
+                  </label>
+
+                  {/* Choice 3: 保存到预设 */}
+                  <label className="flex items-start gap-2.5 p-2 rounded-xl border border-slate-200 hover:border-sky-300 bg-white cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={revisionApplyPreset}
+                      onChange={(e) => setRevisionApplyPreset(e.target.checked)}
+                      className="accent-sky-500 w-4 h-4 rounded cursor-pointer mt-0.5 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-slate-800 text-xs">保存到预设模板</div>
+                      <div className="text-[10px] text-slate-400">
+                        沉淀至当前绑定的叙事预设（{activePreset?.title || '当前预设'}），永久生效
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
+              <button
+                type="button"
+                onClick={() => setIsRevisionModalOpen(false)}
+                className="px-3.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 font-medium text-xs transition-colors cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={isGeneratingPlan || !revisionPlan.trim() || (!revisionApplyReroll && !revisionApplySession && !revisionApplyPreset)}
+                onClick={handleApplyRevision}
+                className="px-4 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-medium text-xs shadow-xs shadow-sky-200 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>确认应用</span>
+              </button>
             </div>
           </div>
         </div>
