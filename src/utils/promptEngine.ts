@@ -3,8 +3,8 @@ import { CharacterCard, WorldBook, SystemPreset, GameStatDefinition, StorySaveCo
 export function buildSystemInstruction(
   save: StorySave,
   characters: CharacterCard[],
-  worldbook?: WorldBook,
-  preset?: SystemPreset,
+  worldbook?: WorldBook | WorldBook[],
+  preset?: SystemPreset | SystemPreset[],
   userMask?: UserMask
 ): string {
   const parts: string[] = [];
@@ -67,11 +67,11 @@ NPC与现场环境必须直接承接玩家的发言，进行面对面的交互�
 防抢话开关处于【强制开启】状态。你的身份【绝对仅限于扮演 NPC 与世界环境】，【绝对禁止扮演${playerName}】！
 请把以下四条红线作为最高硬性约束：
 1. 🚫【绝对禁止替玩家说出任何台词】：
-   严禁在输出中生成任何属于${playerName}的对话、言论或口头回答，严禁为${playerName}添加任何双引号台词（如“...”）！
+   严禁在输出中生成任何属于玩家的对话、言论或口头回答（无论使用第二人称“你”、姓名“${playerName}”还是第三人称“他/她”），严禁为玩家角色添加任何双引号台词（如“...”）！
 2. 🚫【绝对禁止替玩家做出任何行动决策】：
-   严禁替${playerName}做出任何主动动作（如替玩家“点头同意”、“拔剑冲去”、“接过物品”、“跟随前往”、“伸手阻拦”等）。玩家上一轮做了什么就是什么，你绝不能替玩家擅自推进随后的新动作！
+   严禁替玩家做出任何主动动作（如替玩家“点头同意”、“拔剑冲去”、“接过物品”、“跟随前往”、“伸手阻拦”等）。玩家上一轮做了什么就是什么，你绝不能替玩家擅自推进随后的新动作！
 3. 🚫【绝对禁止描写玩家的内心与主观感受】：
-   严禁描写${playerName}“心中暗想”、“感到震惊”、“犹豫不决”、“内心动摇”等任何主观心理！主观意识完全归玩家所有。
+   严禁描写玩家“心中暗想”、“感到震惊”、“犹豫不决”、“内心动摇”等任何主观心理！主观意识完全归玩家所有。
 4. 🛑【必须在 NPC 反应完毕后立即停笔】：
    你的描写仅能包含：NPC对玩家上一句话的言语回复、神情体态变化、现场客观环境的演化。一旦NPC说完话或把局势/选择抛给玩家，【必须立刻刹车停笔】，交还发言权等待玩家在输入框中自主输入！`);
   } else {
@@ -108,9 +108,35 @@ ${maskLines.join('\n')}
 NPC及世界剧情对玩家的态度、称谓（可根据交情熟稔度与情境合理称呼其真实姓名、行动代号或昵称）、互动与防备需严格契合该人设卡。玩家依然保留完全自由的行动权与决策权。`);
   }
 
-  // Collect and sort worldbook entries by priority (descending)
-  const activeEntries = (worldbook?.entries || [])
-    .filter(e => e.enabled)
+  // Normalize worldbooks and presets (supports multiple)
+  const worldbookList: WorldBook[] = Array.isArray(worldbook)
+    ? worldbook
+    : worldbook
+    ? [worldbook]
+    : [];
+  const presetList: SystemPreset[] = Array.isArray(preset)
+    ? preset
+    : preset
+    ? [preset]
+    : [];
+
+  // Collect and sort worldbook entries across all linked worldbooks by priority (descending)
+  const allEntriesRaw: WorldBookEntry[] = [];
+  worldbookList.forEach((wb) => {
+    if (wb && wb.entries) {
+      wb.entries.forEach((entry) => {
+        if (entry.enabled) allEntriesRaw.push(entry);
+      });
+    }
+  });
+
+  const seenEntryIds = new Set<string>();
+  const activeEntries = allEntriesRaw
+    .filter((e) => {
+      if (seenEntryIds.has(e.id)) return false;
+      seenEntryIds.add(e.id);
+      return true;
+    })
     .sort((a, b) => (b.priority ?? 50) - (a.priority ?? 50));
 
   const formatEntries = (entries: WorldBookEntry[]) =>
@@ -122,9 +148,14 @@ NPC及世界剧情对玩家的态度、称谓（可根据交情熟稔度与情�
     parts.push(`【世界观核心规则（系统级设定）】\n${formatEntries(systemEntries)}`);
   }
 
-  // 2. Preset custom prompt
-  if (preset && preset.contentPrompt) {
-    parts.push(`【叙事预设 - ${preset.title}】\n${preset.contentPrompt}`);
+  // 2. Preset custom prompts (supports multiple combined presets)
+  if (presetList.length > 0) {
+    const presetBlocks = presetList
+      .filter((p) => p && p.contentPrompt)
+      .map((p) => `【叙事预设 - ${p.title}】\n${p.contentPrompt}`);
+    if (presetBlocks.length > 0) {
+      parts.push(presetBlocks.join('\n\n'));
+    }
   }
 
   // 3. Worldbook entries before characters
@@ -133,16 +164,31 @@ NPC及世界剧情对玩家的态度、称谓（可根据交情熟稔度与情�
     parts.push(`【世界观与环境背景设定】\n${formatEntries(beforeCharEntries)}`);
   }
 
-  // 4. Active characters
+  // 4. Active characters with role tiers (主角 / 配角 / 群演)
   const activeChars = characters.filter(c => save.characterIds.includes(c.id));
   if (activeChars.length > 0) {
+    const getRoleName = (charId: string, defaultRole?: string) => {
+      const assigned = save.characterRoleMap?.[charId] || defaultRole;
+      if (assigned === 'protagonist') return '【主角】';
+      if (assigned === 'supporting') return '【配角】';
+      if (assigned === 'extra') return '【群演】';
+      return '';
+    };
+
     parts.push(`【登场角色档案】
-${activeChars.map((c, i) => `--- 角色 ${i + 1}：${c.name} (${c.identity}) ---
+${activeChars.map((c, i) => `--- 角色 ${i + 1}：${c.name} ${getRoleName(c.id, c.roleType)} (${c.identity}) ---
 - 外貌容姿：${c.appearance}
 - 性格心性：${c.personality}
 - 背景渊源：${c.background}
 - 说话习惯与语气：${c.speechStyle}
 - 秘密与特殊备注：${c.customNotes}`).join('\n\n')}`);
+
+    if (save.characterRoleMap && Object.keys(save.characterRoleMap).length > 0) {
+      parts.push(`【登场人物角色层级交互规范】：
+- 标为【主角】的角色：是本次文游叙事与互动的绝对核心聚焦点，其神态动作、心理深度、与玩家的命运羁绊需获得最充分、最深入的细腻笔墨刻画；
+- 标为【配角】的角色：在剧情需要时适时登场推动主线发展，与主角及玩家产生鲜明对话交锋与配合，具备独立鲜活的人设立场；
+- 标为【群演】的角色：主要承担场景氛围渲染、信息传递、市井声色或环境烘托，言行简练自然，不喧宾夺主。`);
+    }
   }
 
   // 5. Worldbook entries after characters
@@ -156,16 +202,16 @@ ${activeChars.map((c, i) => `--- 角色 ${i + 1}：${c.name} (${c.identity}) ---
   const recalcPendingIds = save.recalcPendingCharacterIds || [];
 
   if (save.stats && save.stats.length > 0) {
+    const validStatNames = Array.from(
+      new Set(save.stats.filter((s) => s.enabled).map((s) => s.name))
+    );
+
     const charStatsBlocks = activeChars.map((char) => {
       const isCharDisabled = disabledCharIds.includes(char.id);
       const isRecalcPending = recalcPendingIds.includes(char.id);
 
       if (isCharDisabled) {
         return `【角色：${char.name}】（该人物状况追踪已关闭，后台不记录其数值变化）`;
-      }
-
-      if (isRecalcPending) {
-        return `【角色：${char.name}】（⚠️ 刚重新开启状况追踪！请结合截至目前的上下文剧情，重新计算并给出该角色各项数值：好感度、戒备值、精神值、黑化值、体力，以 <!--STATS_RECALC: {"${char.name}": {"好感度": 50, "戒备值": 30, "精神值": 85, "黑化值": 0, "体力": 90}} --> 输出）`;
       }
 
       const charStats = save.stats.filter(
@@ -176,7 +222,12 @@ ${activeChars.map((c, i) => `--- 角色 ${i + 1}：${c.name} (${c.identity}) ---
         return `【角色：${char.name}】暂无属性`;
       }
 
-      return `【角色：${char.name}】当前独立数值：\n` +
+      if (isRecalcPending) {
+        const sampleRecalc = charStats.map((s) => `"${s.name}": ${s.currentValue}`).join(', ');
+        return `【角色：${char.name}】（⚠️ 刚重新开启状况追踪！请结合截至目前的上下文剧情，重新计算并给出该角色各项数值，以 <!--STATS_RECALC: {"${char.name}": {${sampleRecalc}}} --> 输出）`;
+      }
+
+      return `【角色：${char.name}】当前独立数值（严格以此列表为准）：\n` +
         charStats.map((s) => `  - ${s.name}：当前值 ${s.currentValue}${s.unit}（取值范围 ${s.minValue} ~ ${s.maxValue}）`).join('\n');
     });
 
@@ -184,9 +235,21 @@ ${activeChars.map((c, i) => `--- 角色 ${i + 1}：${c.name} (${c.identity}) ---
       ? '极其正面、高洁纯良的角色形象，黑化值强制锁定为 0；复杂、灰色或反面性格角色，可随剧情经历合理增减。'
       : '黑化人设约束已关闭：所有角色（包括正面高洁形象）均与其他属性一致，完全随剧情经历、遭遇诱惑或挫折打击正常增减黑化值。';
 
+    const exampleStat1 = validStatNames[0] || '好感度';
+    const exampleStat2 = validStatNames.length > 1 ? validStatNames[1] : '';
+    const exampleDeltaObj = exampleStat2 ? `{"${exampleStat1}": 2, "${exampleStat2}": -1}` : `{"${exampleStat1}": 2}`;
+
     parts.push(`【各角色独立数值与后台因果系统】
 群像及多角色模式下，每个角色的属性数值相互独立，绝不共用同一套数值：
 ${charStatsBlocks.join('\n\n')}
+
+【🚨 属性变动最高执行白名单禁令（必须绝对严格服从，违者严重越界）】：
+1. 属性严格白名单：当前有效设定的属性【仅限且严格限定为以下列出的属性】：
+   👉【${validStatNames.join('、')}】
+2. 严禁思考与输出已删除的属性：
+   玩家若已删除某项属性（例如上述有效列表中【没有】出现“戒备值”或其他已被玩家删除的项），【绝对禁止在思考过程中擅自计算该属性，绝对严禁在 <!--STATS_UPDATE--> 中输出任何增减】！任何未在上方列出的已删除属性均视为非法数据，必须彻底剔除！
+3. 本轮后台因果计算：
+   只能且必须仅在上述有效设定的属性（${validStatNames.join('、')}）中，根据角色在剧情中的经历合理增减。未变动的属性无需包含。
 
 系统内置核心数值运作法则（严格遵循，不向玩家暴露系统元规则）：
 1. 真实真人感与剧情走向：
@@ -206,11 +269,11 @@ ${charStatsBlocks.join('\n\n')}
    ${corruptionRuleText}
 5. 好感度与爱慕值规则：
    单人好感度上限 100。达到 100 后锁定为 100 并开启【爱慕值】（0~100+），后续深情全部转入该角色的【爱慕值】；若好感度跌破 100，爱慕值自动消失。
-6. 后台追踪与本轮数值变动输出格式（必须分角色输出）：
+6. 后台追踪与本轮数值变动输出格式（必须分角色输出，且仅限上述有效白名单中的属性）：
    无论前台是否开启显示，只要角色状况未关闭，每轮回复最末尾必须分角色输出变动量（未变动的数值无需包含）：
-<!--STATS_UPDATE: {"${activeChars[0]?.name || '角色名'}": {"好感度": 2, "戒备值": -1}} -->
+<!--STATS_UPDATE: {"${activeChars[0]?.name || '角色名'}": ${exampleDeltaObj}} -->
 若多名角色同时变动，必须分别归于各角色名下：
-<!--STATS_UPDATE: {"${activeChars[0]?.name || '角色A'}": {"好感度": 2}, "${activeChars[1]?.name || '角色B'}": {"体力": -5}} -->
+<!--STATS_UPDATE: {"${activeChars[0]?.name || '角色A'}": {"${exampleStat1}": 2}, "${activeChars[1]?.name || '角色B'}": {"${exampleStat1}": -1}} -->
 （注意：JSON数值内请使用纯数字如 2 或 -1，不要带加号）`);
   }
 

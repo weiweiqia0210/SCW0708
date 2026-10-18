@@ -29,6 +29,7 @@ import {
   Plus,
   Trash2,
   SlidersHorizontal,
+  BookOpen,
 } from 'lucide-react';
 import {
   StorySave,
@@ -333,6 +334,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
     commitSave(updatedSave);
   };
 
+  const handleDeleteStatFromSave = (statId: string) => {
+    const next = {
+      ...currentSave,
+      stats: currentSave.stats.filter((s) => s.id !== statId),
+      updatedAt: Date.now(),
+    };
+    commitSave(next);
+  };
+
   // Append option text to input box for secondary editing
   const handleAppendOptionToInput = (choice: string) => {
     setInputText((prev) => {
@@ -483,10 +493,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
     resetNavHideTimer();
   };
 
-  // Active characters, worldbook, preset, user mask
+  // Active characters, worldbooks, presets, user mask
   const activeChars = characters.filter((c) => currentSave.characterIds.includes(c.id));
-  const activeWorldBook = worldbooks.find((wb) => wb.id === currentSave.worldBookId);
-  const activePreset = presets.find((p) => p.id === currentSave.presetId) || presets[0];
+  const activeWorldBooks = worldbooks.filter(
+    (wb) => (currentSave.worldBookIds && currentSave.worldBookIds.includes(wb.id)) || wb.id === currentSave.worldBookId
+  );
+  const activeWorldBook = activeWorldBooks[0] || worldbooks.find((wb) => wb.id === currentSave.worldBookId);
+  const activePresets = presets.filter(
+    (p) => (currentSave.presetIds && currentSave.presetIds.includes(p.id)) || p.id === currentSave.presetId
+  );
+  const activePreset = activePresets[0] || presets.find((p) => p.id === currentSave.presetId) || presets[0];
   const isMaskEnabled =
     currentSave.config?.userMaskEnabled !== false &&
     Boolean(currentSave.userMaskId) &&
@@ -866,8 +882,8 @@ ${revisionOriginalText}
       let systemInstruction = buildSystemInstruction(
         activeSaveState,
         characters,
-        activeWorldBook,
-        activePreset,
+        activeWorldBooks.length > 0 ? activeWorldBooks : activeWorldBook,
+        activePresets.length > 0 ? activePresets : activePreset,
         activeUserMask
       );
 
@@ -885,11 +901,22 @@ ${revisionOriginalText}
 4. 描写完 NPC 对玩家上一句话的反应与客观环境后，必须立即刹车停笔，交还发言权等待玩家在输入框中自主输入！`;
       }
 
-      // Prepare payload messages
-      const apiMessages = conversationHistory.map((m) => ({
-        role: (m.role === 'assistant' ? 'model' : 'user') as 'model' | 'user',
-        text: m.content,
-      }));
+      // Prepare payload messages (reinforce anti-impersonation token constraints right at the prompt end)
+      const apiMessages = conversationHistory.map((m, idx) => {
+        let text = m.content;
+        if (
+          activeSaveState.config.antiImpersonationEnabled !== false &&
+          idx === conversationHistory.length - 1 &&
+          m.role === 'user'
+        ) {
+          const playerName = activeUserMask?.name ? `玩家“${activeUserMask.name}”` : '玩家（User）';
+          text = `${m.content}\n\n[系统执行警示：防抢话已开启。严禁替${playerName}或“你”写出任何台词、做任何动作决策或描写心理活动！你只扮演NPC与现场环境，描写完NPC面对上述言行的反应后必须立即刹车停笔！]`;
+        }
+        return {
+          role: (m.role === 'assistant' ? 'model' : 'user') as 'model' | 'user',
+          text,
+        };
+      });
 
       let accumulatedRaw = '';
 
@@ -919,13 +946,39 @@ ${revisionOriginalText}
         suggestedBranches,
       } = parseAIResponseTags(accumulatedRaw);
 
+      // Strict whitelist filtering: Only keep stats that actually exist and are enabled in activeSaveState.stats!
+      // Any deleted stat (e.g. 戒备值) is strictly excluded and cannot affect game data or appear in outputs.
+      const validStatNames = new Set(
+        (activeSaveState.stats || []).filter((s) => s.enabled).map((s) => s.name)
+      );
+
+      const filteredStatsDelta: Record<string, number> = {};
+      for (const [k, v] of Object.entries(statsDelta)) {
+        if (validStatNames.has(k)) {
+          filteredStatsDelta[k] = v;
+        }
+      }
+
+      const filteredStatsDeltaByCharacter: Record<string, Record<string, number>> = {};
+      for (const [cName, dMap] of Object.entries(statsDeltaByCharacter)) {
+        const charDeltas: Record<string, number> = {};
+        for (const [sName, sVal] of Object.entries(dMap)) {
+          if (validStatNames.has(sName)) {
+            charDeltas[sName] = sVal;
+          }
+        }
+        if (Object.keys(charDeltas).length > 0) {
+          filteredStatsDeltaByCharacter[cName] = charDeltas;
+        }
+      }
+
       // Create new branch object
       const newBranch: ChatMessageBranch = {
         id: `branch-${Date.now()}`,
         text: cleanText,
         thoughts,
-        statsDelta,
-        statsDeltaByCharacter,
+        statsDelta: filteredStatsDelta,
+        statsDeltaByCharacter: filteredStatsDeltaByCharacter,
         suggestedBranches,
         timestamp: Date.now(),
       };
@@ -933,8 +986,8 @@ ${revisionOriginalText}
       // Always update stats in the background per character (honoring disabled status, recalc, and affection rules)
       const updatedStats = applyStatsUpdate(
         activeSaveState.stats,
-        statsDelta,
-        statsDeltaByCharacter,
+        filteredStatsDelta,
+        filteredStatsDeltaByCharacter,
         recalcStats,
         activeChars,
         activeSaveState.disabledCharacterStatIds || []
@@ -973,8 +1026,8 @@ ${revisionOriginalText}
           ...existingMsg,
           content: cleanText,
           thoughts,
-          statsDelta,
-          statsDeltaByCharacter,
+          statsDelta: filteredStatsDelta,
+          statsDeltaByCharacter: filteredStatsDeltaByCharacter,
           suggestedBranches,
           branches: updatedBranches,
           currentBranchIndex: newBranchIndex,
@@ -989,8 +1042,8 @@ ${revisionOriginalText}
           role: 'assistant',
           content: cleanText,
           thoughts,
-          statsDelta,
-          statsDeltaByCharacter,
+          statsDelta: filteredStatsDelta,
+          statsDeltaByCharacter: filteredStatsDeltaByCharacter,
           suggestedBranches,
           branches: [newBranch],
           currentBranchIndex: 0,
@@ -1357,15 +1410,33 @@ ${revisionOriginalText}
 
                     {/* Numerical Stats Delta Badge - Separated by character & Folded by default */}
                     {(() => {
-                      let charDeltas: Record<string, Record<string, number>> = msg.statsDeltaByCharacter || {};
+                      const validStatNames = new Set(
+                        currentSave.stats.filter((s) => s.enabled).map((s) => s.name)
+                      );
+
+                      let rawCharDeltas: Record<string, Record<string, number>> = msg.statsDeltaByCharacter || {};
 
                       if (
-                        Object.keys(charDeltas).length === 0 &&
+                        Object.keys(rawCharDeltas).length === 0 &&
                         msg.statsDelta &&
                         Object.keys(msg.statsDelta).length > 0
                       ) {
                         const defaultCharName = activeChars[0]?.name || '角色';
-                        charDeltas = { [defaultCharName]: msg.statsDelta };
+                        rawCharDeltas = { [defaultCharName]: msg.statsDelta };
+                      }
+
+                      // Only retain deltas for stats currently present and enabled in the save
+                      const charDeltas: Record<string, Record<string, number>> = {};
+                      for (const [cName, dMap] of Object.entries(rawCharDeltas)) {
+                        const validMap: Record<string, number> = {};
+                        for (const [sName, sVal] of Object.entries(dMap)) {
+                          if (validStatNames.has(sName)) {
+                            validMap[sName] = sVal;
+                          }
+                        }
+                        if (Object.keys(validMap).length > 0) {
+                          charDeltas[cName] = validMap;
+                        }
                       }
 
                       const charNames = Object.keys(charDeltas).filter(
@@ -1731,7 +1802,8 @@ ${revisionOriginalText}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  // 回车键换行（空到下行）；快捷键 Ctrl+Enter 或 Command+Enter 发送
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                     e.preventDefault();
                     handleSendMessage();
                   }
@@ -1994,9 +2066,6 @@ ${revisionOriginalText}
                                 <div className="font-semibold text-slate-800 text-xs truncate">
                                   {char.name}
                                 </div>
-                                <div className="text-[10px] text-slate-400 truncate">
-                                  {char.identity}
-                                </div>
                               </div>
                             </div>
 
@@ -2174,12 +2243,22 @@ ${revisionOriginalText}
                                       return (
                                         <div
                                           key={stat.id}
-                                          className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1"
+                                          className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1 group"
                                         >
                                           <div className="flex items-center justify-between">
-                                            <span className="font-semibold text-slate-800 text-xs">
-                                              {stat.name}
-                                            </span>
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="font-semibold text-slate-800 text-xs">
+                                                {stat.name}
+                                              </span>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleDeleteStatFromSave(stat.id)}
+                                                className="opacity-0 group-hover:opacity-100 hover:text-rose-600 text-slate-300 p-0.5 rounded transition-opacity cursor-pointer"
+                                                title={`删除属性“${stat.name}”（删除后不再参与因果计算）`}
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </button>
+                                            </div>
                                             <div className="flex items-center gap-1">
                                               {stat.lastDelta !== undefined && stat.lastDelta !== 0 && (
                                                 <span
@@ -2221,83 +2300,63 @@ ${revisionOriginalText}
                 </div>
               )}
 
-              {/* Tab 2: Characters */}
+              {/* Tab 2: Characters (只展示名字，不展示冗长简介) */}
               {activeDrawerTab === 'characters' && (
-                <div className="space-y-3">
-                  {activeChars.map((char) => (
-                    <div
-                      key={char.id}
-                      className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden border border-sky-200">
-                          {char.avatarImage ? (
-                            <img src={char.avatarImage} alt={char.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <span>{char.name.slice(0, 1)}</span>
-                          )}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-slate-800">{char.name}</div>
-                          <div className="text-[10px] text-slate-400">
-                            {char.identity} · {char.gender}
+                <div className="space-y-2">
+                  <div className="text-[11px] text-slate-400 mb-1">
+                    登场角色（共 {activeChars.length} 人）：
+                  </div>
+                  {activeChars.length === 0 ? (
+                    <div className="py-8 text-center text-slate-400">本存档未配置登场角色</div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {activeChars.map((char) => (
+                        <div
+                          key={char.id}
+                          className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center gap-2.5 shadow-2xs"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden border border-sky-200">
+                            {char.avatarImage ? (
+                              <img src={char.avatarImage} alt={char.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <span>{char.name.slice(0, 1)}</span>
+                            )}
+                          </div>
+                          <div className="font-semibold text-slate-800 text-xs truncate">
+                            {char.name}
                           </div>
                         </div>
-                      </div>
-
-                      <div className="space-y-1 text-[11px] text-slate-600">
-                        <p>
-                          <span className="font-medium text-slate-400">性格：</span>
-                          {char.personality}
-                        </p>
-                        <p>
-                          <span className="font-medium text-slate-400">外貌：</span>
-                          {char.appearance}
-                        </p>
-                        <p>
-                          <span className="font-medium text-slate-400">语气：</span>
-                          {char.speechStyle}
-                        </p>
-                        {char.customNotes && (
-                          <p className="text-amber-800 bg-amber-50/80 p-1.5 rounded-lg border border-amber-200/60">
-                            <span className="font-medium">暗线：</span>
-                            {char.customNotes}
-                          </p>
-                        )}
-                      </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
 
-              {/* Tab 3: Worldbook */}
+              {/* Tab 3: Worldbook (只展示名字，不展示冗长设定正文) */}
               {activeDrawerTab === 'worldbook' && (
-                <div className="space-y-3">
-                  {activeWorldBook ? (
-                    <div>
-                      <div className="font-semibold text-slate-800 text-xs mb-1">
+                <div className="space-y-2">
+                  <div className="text-[11px] text-slate-400 mb-1">
+                    关联世界观设定：
+                  </div>
+                  {activeWorldBooks.length > 0 ? (
+                    <div className="space-y-2">
+                      {activeWorldBooks.map((wb) => (
+                        <div
+                          key={wb.id}
+                          className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center gap-2.5 shadow-2xs"
+                        >
+                          <BookOpen className="w-4 h-4 text-sky-500 shrink-0" />
+                          <div className="font-semibold text-slate-800 text-xs truncate">
+                            《{wb.title}》
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : activeWorldBook ? (
+                    <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center gap-2.5 shadow-2xs">
+                      <BookOpen className="w-4 h-4 text-sky-500 shrink-0" />
+                      <div className="font-semibold text-slate-800 text-xs truncate">
                         《{activeWorldBook.title}》
-                      </div>
-                      <p className="text-[11px] text-slate-500 mb-3">
-                        {activeWorldBook.description}
-                      </p>
-
-                      <div className="space-y-2">
-                        {activeWorldBook.entries
-                          .filter((e) => e.enabled)
-                          .map((entry) => (
-                            <div
-                              key={entry.id}
-                              className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1"
-                            >
-                              <div className="font-semibold text-slate-700 text-xs">
-                                {entry.name}
-                              </div>
-                              <p className="text-[11px] text-slate-600 leading-relaxed">
-                                {entry.content}
-                              </p>
-                            </div>
-                          ))}
                       </div>
                     </div>
                   ) : (

@@ -1,3 +1,5 @@
+export type CharacterRoleType = 'protagonist' | 'supporting' | 'extra';
+
 export interface CharacterCard {
   id: string;
   name: string;
@@ -10,6 +12,7 @@ export interface CharacterCard {
   background: string;
   speechStyle: string;
   customNotes: string;
+  roleType?: CharacterRoleType; // 默认身份定位：主角 / 配角 / 群演
   updatedAt: number;
   createdAt: number;
 }
@@ -125,8 +128,11 @@ export interface StorySave {
   summary: string;
   mode: 'single' | 'multi';
   characterIds: string[];
-  worldBookId?: string;
-  presetId: string;
+  characterRoleMap?: Record<string, CharacterRoleType>; // 多人模式角色分层：主角 / 配角 / 群演
+  worldBookId?: string; // 单个关联（兼容旧存档）
+  worldBookIds?: string[]; // 支持关联多个世界书
+  presetId: string; // 单个关联（兼容旧存档）
+  presetIds?: string[]; // 支持关联多个预设模板
   userMaskId?: string; // 使用的User面具ID
   openingPremise: string;
   messages: ChatMessage[];

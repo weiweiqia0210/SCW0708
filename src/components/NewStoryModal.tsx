@@ -1,6 +1,32 @@
 import React, { useState } from 'react';
-import { X, Sparkles, User, Users, Compass, Sliders, Heart, Shield, Skull, Zap, Brain, Plus, Trash2 } from 'lucide-react';
-import { CharacterCard, WorldBook, SystemPreset, GameStatDefinition, StorySave, WordCountOption, UserMask } from '../types';
+import {
+  X,
+  Sparkles,
+  User,
+  Users,
+  Compass,
+  Sliders,
+  Heart,
+  Shield,
+  Skull,
+  Zap,
+  Brain,
+  Plus,
+  Trash2,
+  Check,
+  BookOpen,
+  SlidersHorizontal,
+} from 'lucide-react';
+import {
+  CharacterCard,
+  WorldBook,
+  SystemPreset,
+  GameStatDefinition,
+  StorySave,
+  WordCountOption,
+  UserMask,
+  CharacterRoleType,
+} from '../types';
 import { DEFAULT_INITIAL_STATS } from '../utils/defaultData';
 
 interface NewStoryModalProps {
@@ -30,10 +56,27 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
     characters.slice(0, 2).map((c) => c.id)
   );
 
+  // Multi-character role tier management (主角 / 配角 / 群演)
+  const [roleFilter, setRoleFilter] = useState<'all' | 'protagonist' | 'supporting' | 'extra'>('all');
+  const [characterRoleMap, setCharacterRoleMap] = useState<Record<string, CharacterRoleType>>(() => {
+    const initialMap: Record<string, CharacterRoleType> = {};
+    characters.forEach((c, idx) => {
+      initialMap[c.id] = c.roleType || (idx === 0 ? 'protagonist' : idx < 3 ? 'supporting' : 'extra');
+    });
+    return initialMap;
+  });
+
   const [title, setTitle] = useState('');
   const [openingPremise, setOpeningPremise] = useState('');
-  const [selectedWorldBookId, setSelectedWorldBookId] = useState<string>(worldbooks[0]?.id || '');
-  const [selectedPresetId, setSelectedPresetId] = useState<string>(presets[0]?.id || '');
+  const [writingGuidance, setWritingGuidance] = useState('');
+
+  // Worldbooks & Presets multi-select
+  const [selectedWorldBookIds, setSelectedWorldBookIds] = useState<string[]>(
+    worldbooks[0]?.id ? [worldbooks[0].id] : []
+  );
+  const [selectedPresetIds, setSelectedPresetIds] = useState<string[]>(
+    presets[0]?.id ? [presets[0].id] : []
+  );
   const [selectedUserMaskId, setSelectedUserMaskId] = useState<string>(
     activeUserMaskId || userMasks[0]?.id || ''
   );
@@ -124,11 +167,52 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
     setStats(stats.filter((s) => s.id !== statId));
   };
 
+  const getCharRole = (charId: string): CharacterRoleType => {
+    return characterRoleMap[charId] || 'supporting';
+  };
+
+  const handleSetCharRole = (charId: string, role: CharacterRoleType, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setCharacterRoleMap((prev) => ({ ...prev, [charId]: role }));
+  };
+
+  const handleToggleWorldBook = (wbId: string) => {
+    setSelectedWorldBookIds((prev) =>
+      prev.includes(wbId) ? prev.filter((id) => id !== wbId) : [...prev, wbId]
+    );
+  };
+
+  const handleTogglePreset = (presetId: string) => {
+    setSelectedPresetIds((prev) =>
+      prev.includes(presetId)
+        ? prev.filter((id) => id !== presetId)
+        : [...prev, presetId]
+    );
+  };
+
+  const filteredCharacters = characters.filter((c) => {
+    if (mode === 'single') return true;
+    if (roleFilter === 'all') return true;
+    return getCharRole(c.id) === roleFilter;
+  });
+
+  const handleSelectAllFiltered = () => {
+    const idsToAdd = filteredCharacters.map((c) => c.id);
+    setSelectedMultiCharIds((prev) => Array.from(new Set([...prev, ...idsToAdd])));
+  };
+
+  const handleClearFiltered = () => {
+    if (roleFilter === 'all') {
+      setSelectedMultiCharIds([]);
+    } else {
+      const idsToRemove = new Set(filteredCharacters.map((c) => c.id));
+      setSelectedMultiCharIds((prev) => prev.filter((id) => !idsToRemove.has(id)));
+    }
+  };
+
   const handleMultiCharToggle = (charId: string) => {
     if (selectedMultiCharIds.includes(charId)) {
-      if (selectedMultiCharIds.length > 1) {
-        setSelectedMultiCharIds(selectedMultiCharIds.filter((id) => id !== charId));
-      }
+      setSelectedMultiCharIds(selectedMultiCharIds.filter((id) => id !== charId));
     } else {
       setSelectedMultiCharIds([...selectedMultiCharIds, charId]);
     }
@@ -139,7 +223,9 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
 
     const charIds =
       mode === 'single'
-        ? (selectedCharacterId ? [selectedCharacterId] : [])
+        ? selectedCharacterId
+          ? [selectedCharacterId]
+          : []
         : selectedMultiCharIds;
     if (charIds.length === 0 || !charIds[0]) {
       alert('请先创建并选择至少一个角色');
@@ -174,8 +260,16 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
       summary: effectivePremise.slice(0, 120),
       mode,
       characterIds: charIds,
-      worldBookId: selectedWorldBookId || undefined,
-      presetId: selectedPresetId || presets[0]?.id || 'preset-default',
+      characterRoleMap: mode === 'multi' ? characterRoleMap : undefined,
+      worldBookId: selectedWorldBookIds[0] || undefined,
+      worldBookIds: selectedWorldBookIds,
+      presetId: selectedPresetIds[0] || presets[0]?.id || 'preset-default',
+      presetIds:
+        selectedPresetIds.length > 0
+          ? selectedPresetIds
+          : presets[0]?.id
+          ? [presets[0].id]
+          : ['preset-default'],
       openingPremise: effectivePremise,
       messages: [],
       stats: finalStats,
@@ -189,12 +283,12 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
         wordCountConstraintEnabled: false,
         wordCountMin: 300,
         wordCountMax: 800,
-        narrativePerspective: 'second',
+        narrativePerspective: 'third',
         antiImpersonationEnabled: true,
         playMode: 'dialogue',
-        writingGuidance: '',
+        writingGuidance: writingGuidance.trim(),
       },
-      userMaskId: userMaskEnabled ? (selectedUserMaskId || undefined) : undefined,
+      userMaskId: userMaskEnabled ? selectedUserMaskId || undefined : undefined,
       disabledCharacterStatIds: [],
       recalcPendingCharacterIds: [],
       createdAt: Date.now(),
@@ -262,49 +356,166 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
           </div>
 
           {/* Character selection */}
-          <div>
-            <label className="block font-medium text-slate-700 mb-1.5">
-              {mode === 'single' ? '选择互动角色' : '选择入局角色（可多选）'}
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-1">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block font-medium text-slate-700 text-xs">
+                {mode === 'single' ? '选择互动角色' : '选择入局角色（可多选）'}
+              </label>
+              {mode === 'multi' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-semibold text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-full border border-sky-100">
+                    已选 {selectedMultiCharIds.length} 人
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSelectAllFiltered}
+                    className="text-[10px] text-sky-600 hover:text-sky-700 hover:underline cursor-pointer font-medium"
+                  >
+                    一键全选
+                  </button>
+                  <span className="text-slate-200 text-[10px]">|</span>
+                  <button
+                    type="button"
+                    onClick={handleClearFiltered}
+                    className="text-[10px] text-slate-400 hover:text-rose-600 hover:underline cursor-pointer font-medium"
+                  >
+                    一键清除
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Role Filter Tabs (多人模式下展示主角 / 配角 / 群演筛选) */}
+            {mode === 'multi' && (
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-[11px]">
+                {[
+                  { key: 'all', label: '全部', count: characters.length },
+                  {
+                    key: 'protagonist',
+                    label: '主角',
+                    count: characters.filter((c) => getCharRole(c.id) === 'protagonist').length,
+                  },
+                  {
+                    key: 'supporting',
+                    label: '配角',
+                    count: characters.filter((c) => getCharRole(c.id) === 'supporting').length,
+                  },
+                  {
+                    key: 'extra',
+                    label: '群演',
+                    count: characters.filter((c) => getCharRole(c.id) === 'extra').length,
+                  },
+                ].map((tab) => {
+                  const isActive = roleFilter === tab.key;
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setRoleFilter(tab.key as any)}
+                      className={`flex-1 py-1 rounded-lg font-medium transition-all cursor-pointer text-center ${
+                        isActive
+                          ? 'bg-white text-sky-700 shadow-2xs font-semibold'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      <span>{tab.label}</span>
+                      <span className="ml-1 text-[9px] opacity-70">({tab.count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Character Cards Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-44 overflow-y-auto p-1">
               {characters.length === 0 ? (
                 <div className="col-span-full py-5 text-center text-slate-400 text-xs bg-slate-50/70 rounded-xl border border-dashed border-slate-200 p-3">
                   暂无角色卡，请先前往底栏「创作」模块新建角色卡
                 </div>
+              ) : filteredCharacters.length === 0 ? (
+                <div className="col-span-full py-4 text-center text-slate-400 text-xs bg-slate-50/70 rounded-xl border border-slate-100">
+                  当前筛选分类下暂无角色
+                </div>
               ) : (
-                characters.map((char) => {
+                filteredCharacters.map((char) => {
                   const isSelected =
                     mode === 'single'
                       ? selectedCharacterId === char.id
                       : selectedMultiCharIds.includes(char.id);
+                  const role = getCharRole(char.id);
 
                   return (
                     <div
                       key={char.id}
-                    onClick={() => {
-                      if (mode === 'single') setSelectedCharacterId(char.id);
-                      else handleMultiCharToggle(char.id);
-                    }}
-                    className={`p-2 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${
-                      isSelected
-                        ? 'border-sky-400 bg-sky-50 text-sky-700 shadow-xs'
-                        : 'border-slate-100 hover:border-slate-200 bg-white text-slate-600'
-                    }`}
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden border border-sky-200">
-                      {char.avatarImage ? (
-                        <img src={char.avatarImage} alt={char.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <span>{char.name.slice(0, 1)}</span>
+                      onClick={() => {
+                        if (mode === 'single') setSelectedCharacterId(char.id);
+                        else handleMultiCharToggle(char.id);
+                      }}
+                      className={`p-2 rounded-xl border flex flex-col justify-between gap-1.5 cursor-pointer transition-all ${
+                        isSelected
+                          ? 'border-sky-400 bg-sky-50/80 text-sky-800 shadow-xs ring-1 ring-sky-300'
+                          : 'border-slate-100 hover:border-slate-200 bg-white text-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden border border-sky-200">
+                          {char.avatarImage ? (
+                            <img src={char.avatarImage} alt={char.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{char.name.slice(0, 1)}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold truncate text-[11px] flex items-center justify-between">
+                            <span className="truncate">{char.name}</span>
+                            {isSelected && (
+                              <span className="w-3.5 h-3.5 rounded-full bg-sky-500 text-white flex items-center justify-center shrink-0 ml-1">
+                                <Check className="w-2.5 h-2.5" />
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-400 truncate">{char.identity || '角色'}</div>
+                        </div>
+                      </div>
+
+                      {/* Role tier switcher in multi-character mode */}
+                      {mode === 'multi' && (
+                        <div
+                          className="pt-1 border-t border-slate-100 flex items-center justify-between text-[9px]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span className="text-slate-400">身份定位:</span>
+                          <div className="flex items-center gap-0.5">
+                            {(['protagonist', 'supporting', 'extra'] as const).map((r) => {
+                              const isCurr = role === r;
+                              const label = r === 'protagonist' ? '主角' : r === 'supporting' ? '配角' : '群演';
+                              return (
+                                <button
+                                  key={r}
+                                  type="button"
+                                  onClick={(e) => handleSetCharRole(char.id, r, e)}
+                                  className={`px-1 py-0.5 rounded cursor-pointer transition-colors ${
+                                    isCurr
+                                      ? r === 'protagonist'
+                                        ? 'bg-amber-100 text-amber-800 font-bold'
+                                        : r === 'supporting'
+                                        ? 'bg-sky-100 text-sky-800 font-bold'
+                                        : 'bg-slate-200 text-slate-800 font-bold'
+                                      : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                                  }`}
+                                  title={`设为${label}`}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                       )}
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold truncate text-[11px]">{char.name}</div>
-                      <div className="text-[10px] text-slate-400 truncate">{char.identity}</div>
-                    </div>
-                  </div>
-                );
-              }))}
+                  );
+                })
+              )}
             </div>
           </div>
 
@@ -353,37 +564,153 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
             </div>
           </div>
 
-          {/* World Book & Preset Selection */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">关联世界书</label>
-              <select
-                value={selectedWorldBookId}
-                onChange={(e) => setSelectedWorldBookId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-sky-400 bg-white"
-              >
-                <option value="">不使用世界书</option>
-                {worldbooks.map((wb) => (
-                  <option key={wb.id} value={wb.id}>
-                    {wb.title} ({wb.category})
-                  </option>
-                ))}
-              </select>
+          {/* 本场写作指导 (同步至进场游玩设置) */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="font-medium text-slate-700">本场写作指导</label>
+              <span className="text-[10px] text-slate-400">填入您的想法需求，同步至游玩设置</span>
+            </div>
+            <textarea
+              rows={2}
+              value={writingGuidance}
+              onChange={(e) => setWritingGuidance(e.target.value)}
+              placeholder="填入您对本场文游的具体想法需求（如：强化心理描写与环境压迫感、NPC性格冷峻少言、战斗节奏紧凑等）..."
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-sky-400 leading-relaxed text-xs"
+            />
+          </div>
+
+          {/* World Book & Preset Selection (支持多选) */}
+          <div className="space-y-3 pt-1">
+            {/* 1. 关联世界书 (可多选) */}
+            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <BookOpen className="w-3.5 h-3.5 text-sky-500" />
+                  <span className="font-medium text-slate-700 text-xs">关联世界书（可多选）</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 font-semibold">
+                    已选 {selectedWorldBookIds.length} 本
+                  </span>
+                </div>
+                {worldbooks.length > 0 && (
+                  <div className="flex items-center gap-1 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedWorldBookIds(worldbooks.map((w) => w.id))}
+                      className="px-1.5 py-0.5 rounded text-sky-600 hover:bg-sky-100 transition-colors cursor-pointer"
+                    >
+                      全选
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedWorldBookIds([])}
+                      className="px-1.5 py-0.5 rounded text-slate-500 hover:text-rose-500 hover:bg-rose-50 transition-colors cursor-pointer"
+                    >
+                      清空
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {worldbooks.length === 0 ? (
+                <div className="py-2 text-center text-slate-400 text-[11px]">
+                  暂无世界书，可前往底栏「创作」创建
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-1.5 max-h-28 overflow-y-auto pr-0.5">
+                  {worldbooks.map((wb) => {
+                    const isSelected = selectedWorldBookIds.includes(wb.id);
+                    return (
+                      <div
+                        key={wb.id}
+                        onClick={() => handleToggleWorldBook(wb.id)}
+                        className={`p-2 rounded-lg border text-left cursor-pointer transition-all flex items-center justify-between gap-1.5 ${
+                          isSelected
+                            ? 'border-sky-400 bg-sky-50 text-sky-800 shadow-2xs ring-1 ring-sky-300'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-[11px] truncate">{wb.title}</div>
+                          <div className="text-[9px] text-slate-400 truncate">{wb.category}</div>
+                        </div>
+                        <div
+                          className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
+                            isSelected
+                              ? 'bg-sky-500 border-sky-500 text-white'
+                              : 'border-slate-300 bg-white'
+                          }`}
+                        >
+                          {isSelected && <Check className="w-2.5 h-2.5" />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">叙事预设模板</label>
-              <select
-                value={selectedPresetId}
-                onChange={(e) => setSelectedPresetId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-sky-400 bg-white"
-              >
-                {presets.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.title}
-                  </option>
-                ))}
-              </select>
+            {/* 2. 叙事预设模板 (可多选) */}
+            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-sky-500" />
+                  <span className="font-medium text-slate-700 text-xs">叙事预设模板（可多选）</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 font-semibold">
+                    已选 {selectedPresetIds.length} 个
+                  </span>
+                </div>
+                {presets.length > 0 && (
+                  <div className="flex items-center gap-1 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPresetIds(presets.map((p) => p.id))}
+                      className="px-1.5 py-0.5 rounded text-sky-600 hover:bg-sky-100 transition-colors cursor-pointer"
+                    >
+                      全选
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPresetIds([])}
+                      className="px-1.5 py-0.5 rounded text-slate-500 hover:text-rose-500 hover:bg-rose-50 transition-colors cursor-pointer"
+                    >
+                      清空
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5 max-h-28 overflow-y-auto pr-0.5">
+                {presets.map((p) => {
+                  const isSelected = selectedPresetIds.includes(p.id);
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => handleTogglePreset(p.id)}
+                      className={`p-2 rounded-lg border text-left cursor-pointer transition-all flex items-center justify-between gap-1.5 ${
+                        isSelected
+                          ? 'border-sky-400 bg-sky-50 text-sky-800 shadow-2xs ring-1 ring-sky-300'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-[11px] truncate">{p.title}</div>
+                        <div className="text-[9px] text-slate-400 truncate">{p.description}</div>
+                      </div>
+                      <div
+                        className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
+                          isSelected
+                            ? 'bg-sky-500 border-sky-500 text-white'
+                            : 'border-slate-300 bg-white'
+                        }`}
+                      >
+                        {isSelected && <Check className="w-2.5 h-2.5" />}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
