@@ -57,7 +57,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
   );
 
   // Multi-character role tier management (主角 / 配角 / 群演)
-  const [roleFilter, setRoleFilter] = useState<'all' | 'protagonist' | 'supporting' | 'extra'>('all');
+  const [roleFilter, setRoleFilter] = useState<'protagonist' | 'supporting' | 'extra' | 'all'>('protagonist');
   const [characterRoleMap, setCharacterRoleMap] = useState<Record<string, CharacterRoleType>>(() => {
     const initialMap: Record<string, CharacterRoleType> = {};
     characters.forEach((c, idx) => {
@@ -171,9 +171,67 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
     return characterRoleMap[charId] || 'supporting';
   };
 
-  const handleSetCharRole = (charId: string, role: CharacterRoleType, e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setCharacterRoleMap((prev) => ({ ...prev, [charId]: role }));
+  const handleCardClick = (charId: string) => {
+    if (mode === 'single') {
+      setSelectedCharacterId(charId);
+      return;
+    }
+
+    const isSelected = selectedMultiCharIds.includes(charId);
+    const currentRole = characterRoleMap[charId] || 'supporting';
+
+    if (roleFilter === 'all') {
+      if (isSelected) {
+        setSelectedMultiCharIds((prev) => prev.filter((id) => id !== charId));
+      } else {
+        setSelectedMultiCharIds((prev) => [...prev, charId]);
+        if (!characterRoleMap[charId]) {
+          setCharacterRoleMap((prev) => ({ ...prev, [charId]: 'supporting' }));
+        }
+      }
+    } else {
+      const targetRole = roleFilter;
+      // If currently selected with this exact role, click to unselect
+      if (isSelected && currentRole === targetRole) {
+        setSelectedMultiCharIds((prev) => prev.filter((id) => id !== charId));
+      } else {
+        // If not selected, or selected under another role, assign to targetRole and select
+        setCharacterRoleMap((prev) => ({ ...prev, [charId]: targetRole }));
+        if (!isSelected) {
+          setSelectedMultiCharIds((prev) => [...prev, charId]);
+        }
+      }
+    }
+  };
+
+  const handleSelectAllInRole = () => {
+    if (roleFilter === 'all') {
+      const newMap = { ...characterRoleMap };
+      characters.forEach((c) => {
+        if (!newMap[c.id]) newMap[c.id] = 'supporting';
+      });
+      setCharacterRoleMap(newMap);
+      setSelectedMultiCharIds(characters.map((c) => c.id));
+    } else {
+      const targetRole = roleFilter;
+      const newMap = { ...characterRoleMap };
+      characters.forEach((c) => {
+        newMap[c.id] = targetRole;
+      });
+      setCharacterRoleMap(newMap);
+      setSelectedMultiCharIds(characters.map((c) => c.id));
+    }
+  };
+
+  const handleClearInRole = () => {
+    if (roleFilter === 'all') {
+      setSelectedMultiCharIds([]);
+    } else {
+      const targetRole = roleFilter;
+      setSelectedMultiCharIds((prev) =>
+        prev.filter((id) => (characterRoleMap[id] || 'supporting') !== targetRole)
+      );
+    }
   };
 
   const handleToggleWorldBook = (wbId: string) => {
@@ -188,34 +246,6 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
         ? prev.filter((id) => id !== presetId)
         : [...prev, presetId]
     );
-  };
-
-  const filteredCharacters = characters.filter((c) => {
-    if (mode === 'single') return true;
-    if (roleFilter === 'all') return true;
-    return getCharRole(c.id) === roleFilter;
-  });
-
-  const handleSelectAllFiltered = () => {
-    const idsToAdd = filteredCharacters.map((c) => c.id);
-    setSelectedMultiCharIds((prev) => Array.from(new Set([...prev, ...idsToAdd])));
-  };
-
-  const handleClearFiltered = () => {
-    if (roleFilter === 'all') {
-      setSelectedMultiCharIds([]);
-    } else {
-      const idsToRemove = new Set(filteredCharacters.map((c) => c.id));
-      setSelectedMultiCharIds((prev) => prev.filter((id) => !idsToRemove.has(id)));
-    }
-  };
-
-  const handleMultiCharToggle = (charId: string) => {
-    if (selectedMultiCharIds.includes(charId)) {
-      setSelectedMultiCharIds(selectedMultiCharIds.filter((id) => id !== charId));
-    } else {
-      setSelectedMultiCharIds([...selectedMultiCharIds, charId]);
-    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -368,7 +398,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                   </span>
                   <button
                     type="button"
-                    onClick={handleSelectAllFiltered}
+                    onClick={handleSelectAllInRole}
                     className="text-[10px] text-sky-600 hover:text-sky-700 hover:underline cursor-pointer font-medium"
                   >
                     一键全选
@@ -376,7 +406,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                   <span className="text-slate-200 text-[10px]">|</span>
                   <button
                     type="button"
-                    onClick={handleClearFiltered}
+                    onClick={handleClearInRole}
                     className="text-[10px] text-slate-400 hover:text-rose-600 hover:underline cursor-pointer font-medium"
                   >
                     一键清除
@@ -385,44 +415,64 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
               )}
             </div>
 
-            {/* Role Filter Tabs (多人模式下展示主角 / 配角 / 群演筛选) */}
+            {/* Role Tabs (按主角/配角/群演按钮往下选角色卡) */}
             {mode === 'multi' && (
-              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-[11px]">
-                {[
-                  { key: 'all', label: '全部', count: characters.length },
-                  {
-                    key: 'protagonist',
-                    label: '主角',
-                    count: characters.filter((c) => getCharRole(c.id) === 'protagonist').length,
-                  },
-                  {
-                    key: 'supporting',
-                    label: '配角',
-                    count: characters.filter((c) => getCharRole(c.id) === 'supporting').length,
-                  },
-                  {
-                    key: 'extra',
-                    label: '群演',
-                    count: characters.filter((c) => getCharRole(c.id) === 'extra').length,
-                  },
-                ].map((tab) => {
-                  const isActive = roleFilter === tab.key;
-                  return (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      onClick={() => setRoleFilter(tab.key as any)}
-                      className={`flex-1 py-1 rounded-lg font-medium transition-all cursor-pointer text-center ${
-                        isActive
-                          ? 'bg-white text-sky-700 shadow-2xs font-semibold'
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      <span>{tab.label}</span>
-                      <span className="ml-1 text-[9px] opacity-70">({tab.count})</span>
-                    </button>
-                  );
-                })}
+              <div className="space-y-1">
+                <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-[11px]">
+                  {[
+                    {
+                      key: 'protagonist',
+                      label: '👑 主角',
+                      count: selectedMultiCharIds.filter(
+                        (id) => (characterRoleMap[id] || 'supporting') === 'protagonist'
+                      ).length,
+                    },
+                    {
+                      key: 'supporting',
+                      label: '⭐ 配角',
+                      count: selectedMultiCharIds.filter(
+                        (id) => (characterRoleMap[id] || 'supporting') === 'supporting'
+                      ).length,
+                    },
+                    {
+                      key: 'extra',
+                      label: '🎭 群演',
+                      count: selectedMultiCharIds.filter(
+                        (id) => characterRoleMap[id] === 'extra'
+                      ).length,
+                    },
+                    {
+                      key: 'all',
+                      label: '全部已选',
+                      count: selectedMultiCharIds.length,
+                    },
+                  ].map((tab) => {
+                    const isActive = roleFilter === tab.key;
+                    return (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setRoleFilter(tab.key as any)}
+                        className={`flex-1 py-1 rounded-lg font-medium transition-all cursor-pointer text-center ${
+                          isActive
+                            ? 'bg-white text-slate-800 shadow-2xs font-semibold'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        <span>{tab.label}</span>
+                        <span className="ml-1 text-[9px] opacity-70">({tab.count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="text-[10px] text-slate-400 px-1 flex items-center justify-between">
+                  <span>
+                    {roleFilter === 'protagonist' && '👉 当前选择【主角】：点击下方角色卡将其选为主角（戏份核心聚焦）'}
+                    {roleFilter === 'supporting' && '👉 当前选择【配角】：点击下方角色卡将其选为配角（推动剧情与冲突）'}
+                    {roleFilter === 'extra' && '👉 当前选择【群演】：点击下方角色卡将其选为群演（场景氛围烘托）'}
+                    {roleFilter === 'all' && '👉 全部角色概览：点击角色卡可切换选入/移出'}
+                  </span>
+                </div>
               </div>
             )}
 
@@ -432,86 +482,63 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                 <div className="col-span-full py-5 text-center text-slate-400 text-xs bg-slate-50/70 rounded-xl border border-dashed border-slate-200 p-3">
                   暂无角色卡，请先前往底栏「创作」模块新建角色卡
                 </div>
-              ) : filteredCharacters.length === 0 ? (
-                <div className="col-span-full py-4 text-center text-slate-400 text-xs bg-slate-50/70 rounded-xl border border-slate-100">
-                  当前筛选分类下暂无角色
-                </div>
               ) : (
-                filteredCharacters.map((char) => {
+                characters.map((char) => {
                   const isSelected =
                     mode === 'single'
                       ? selectedCharacterId === char.id
                       : selectedMultiCharIds.includes(char.id);
                   const role = getCharRole(char.id);
 
+                  const cardStyle = isSelected
+                    ? role === 'protagonist'
+                      ? 'border-amber-400 bg-amber-50/60 text-amber-950 shadow-2xs ring-1 ring-amber-300'
+                      : role === 'extra'
+                      ? 'border-slate-400 bg-slate-100/80 text-slate-800 shadow-2xs ring-1 ring-slate-300'
+                      : 'border-sky-400 bg-sky-50/60 text-sky-950 shadow-2xs ring-1 ring-sky-300'
+                    : 'border-slate-200 hover:border-slate-300 bg-white text-slate-600';
+
                   return (
                     <div
                       key={char.id}
-                      onClick={() => {
-                        if (mode === 'single') setSelectedCharacterId(char.id);
-                        else handleMultiCharToggle(char.id);
-                      }}
-                      className={`p-2 rounded-xl border flex flex-col justify-between gap-1.5 cursor-pointer transition-all ${
-                        isSelected
-                          ? 'border-sky-400 bg-sky-50/80 text-sky-800 shadow-xs ring-1 ring-sky-300'
-                          : 'border-slate-100 hover:border-slate-200 bg-white text-slate-600'
-                      }`}
+                      onClick={() => handleCardClick(char.id)}
+                      className={`p-2 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${cardStyle}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden border border-sky-200">
-                          {char.avatarImage ? (
-                            <img src={char.avatarImage} alt={char.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <span>{char.name.slice(0, 1)}</span>
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="font-semibold truncate text-[11px] flex items-center justify-between">
-                            <span className="truncate">{char.name}</span>
-                            {isSelected && (
+                      <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden border border-sky-200">
+                        {char.avatarImage ? (
+                          <img src={char.avatarImage} alt={char.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <span>{char.name.slice(0, 1)}</span>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold truncate text-[11px] flex items-center justify-between">
+                          <span className="truncate">{char.name}</span>
+                          {mode === 'single' ? (
+                            isSelected && (
                               <span className="w-3.5 h-3.5 rounded-full bg-sky-500 text-white flex items-center justify-center shrink-0 ml-1">
                                 <Check className="w-2.5 h-2.5" />
                               </span>
-                            )}
-                          </div>
-                          <div className="text-[10px] text-slate-400 truncate">{char.identity || '角色'}</div>
+                            )
+                          ) : (
+                            isSelected && (
+                              <span
+                                className={`text-[9px] px-1 py-0.2 rounded font-medium flex items-center gap-0.5 shrink-0 ml-1 border ${
+                                  role === 'protagonist'
+                                    ? 'bg-amber-100 text-amber-800 border-amber-200 font-bold'
+                                    : role === 'extra'
+                                    ? 'bg-slate-200 text-slate-700 border-slate-300 font-bold'
+                                    : 'bg-sky-100 text-sky-800 border-sky-200 font-bold'
+                                }`}
+                              >
+                                <Check className="w-2.5 h-2.5" />
+                                {role === 'protagonist' ? '主角' : role === 'extra' ? '群演' : '配角'}
+                              </span>
+                            )
+                          )}
                         </div>
+                        <div className="text-[10px] text-slate-400 truncate">{char.identity || '角色'}</div>
                       </div>
-
-                      {/* Role tier switcher in multi-character mode */}
-                      {mode === 'multi' && (
-                        <div
-                          className="pt-1 border-t border-slate-100 flex items-center justify-between text-[9px]"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <span className="text-slate-400">身份定位:</span>
-                          <div className="flex items-center gap-0.5">
-                            {(['protagonist', 'supporting', 'extra'] as const).map((r) => {
-                              const isCurr = role === r;
-                              const label = r === 'protagonist' ? '主角' : r === 'supporting' ? '配角' : '群演';
-                              return (
-                                <button
-                                  key={r}
-                                  type="button"
-                                  onClick={(e) => handleSetCharRole(char.id, r, e)}
-                                  className={`px-1 py-0.5 rounded cursor-pointer transition-colors ${
-                                    isCurr
-                                      ? r === 'protagonist'
-                                        ? 'bg-amber-100 text-amber-800 font-bold'
-                                        : r === 'supporting'
-                                        ? 'bg-sky-100 text-sky-800 font-bold'
-                                        : 'bg-slate-200 text-slate-800 font-bold'
-                                      : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                                  }`}
-                                  title={`设为${label}`}
-                                >
-                                  {label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
                     </div>
                   );
                 })
