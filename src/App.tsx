@@ -180,6 +180,23 @@ export default function App() {
     handleOpenSave(save.id);
   };
 
+  const handleDuplicateSave = (save: StorySave) => {
+    const duplicated: StorySave = {
+      ...save,
+      id: `save-${Date.now()}`,
+      title: `${save.title} (副本)`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      stats: save.stats ? JSON.parse(JSON.stringify(save.stats)) : [],
+      messages: save.messages ? JSON.parse(JSON.stringify(save.messages)) : [],
+      config: { ...save.config },
+    };
+    const nextSaves = [duplicated, ...saves];
+    setSaves(nextSaves);
+    saveSaves(nextSaves);
+    saveSingleStory(duplicated);
+  };
+
   // Settings
   const handleUpdateSettings = (newSettings: AppSettings) => {
     setSettings(newSettings);
@@ -302,6 +319,7 @@ export default function App() {
                 onDeleteSave={handleDeleteSave}
                 onRenameSave={handleRenameSave}
                 onImportSave={handleImportSave}
+                onDuplicateSave={handleDuplicateSave}
                 onOpenNewStory={() => setIsNewStoryModalOpen(true)}
               />
             )}

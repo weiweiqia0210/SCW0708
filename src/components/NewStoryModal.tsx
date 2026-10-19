@@ -715,7 +715,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
               value={writingGuidance}
               onChange={(e) => setWritingGuidance(e.target.value)}
               placeholder="填入您对本场文游的具体想法需求（如：强化心理描写与环境压迫感、NPC性格冷峻少言、战斗节奏紧凑等）..."
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-sky-400 leading-relaxed text-xs"
+              className="w-full h-[100px] px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-sky-400 leading-relaxed text-xs"
             />
           </div>
 

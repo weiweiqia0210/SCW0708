@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookOpen, Search, Play, Trash2, Download, Upload, Edit3, Clock, Users, User, ArrowRight } from 'lucide-react';
+import { BookOpen, Search, Play, Trash2, Download, Upload, Edit3, Clock, Users, User, ArrowRight, Copy, Check } from 'lucide-react';
 import { StorySave, CharacterCard } from '../types';
 import { downloadJsonFile } from '../utils/storage';
 
@@ -10,6 +10,7 @@ interface ShelfViewProps {
   onDeleteSave: (saveId: string) => void;
   onRenameSave: (saveId: string, newTitle: string) => void;
   onImportSave: (save: StorySave) => void;
+  onDuplicateSave?: (save: StorySave) => void;
   onOpenNewStory: () => void;
 }
 
@@ -20,6 +21,7 @@ export const ShelfView: React.FC<ShelfViewProps> = ({
   onDeleteSave,
   onRenameSave,
   onImportSave,
+  onDuplicateSave,
   onOpenNewStory,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -90,6 +92,8 @@ export const ShelfView: React.FC<ShelfViewProps> = ({
     reader.readAsText(file);
   };
 
+  const [copiedSaveId, setCopiedSaveId] = useState<string | null>(null);
+
   const handleStartRename = (save: StorySave) => {
     setEditingSaveId(save.id);
     setEditingTitle(save.title);
@@ -100,6 +104,27 @@ export const ShelfView: React.FC<ShelfViewProps> = ({
       onRenameSave(saveId, editingTitle.trim());
     }
     setEditingSaveId(null);
+  };
+
+  const handleDuplicate = (save: StorySave, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onDuplicateSave) {
+      onDuplicateSave(save);
+    } else {
+      const duplicated: StorySave = {
+        ...save,
+        id: `save-${Date.now()}`,
+        title: `${save.title} (副本)`,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        stats: save.stats ? JSON.parse(JSON.stringify(save.stats)) : [],
+        messages: save.messages ? JSON.parse(JSON.stringify(save.messages)) : [],
+        config: { ...save.config },
+      };
+      onImportSave(duplicated);
+    }
+    setCopiedSaveId(save.id);
+    setTimeout(() => setCopiedSaveId(null), 1500);
   };
 
   return (
@@ -258,6 +283,18 @@ export const ShelfView: React.FC<ShelfViewProps> = ({
                       </div>
                     ) : (
                       <>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDuplicate(save, e)}
+                          title="复制存档档案"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors cursor-pointer"
+                        >
+                          {copiedSaveId === save.id ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
                         <button
                           onClick={() => handleStartRename(save)}
                           title="重命名存档"
