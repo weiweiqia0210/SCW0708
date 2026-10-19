@@ -282,6 +282,125 @@ ${text}`;
   }
 });
 
+// AI Polish story setup (title, opening premise, writing guidance)
+app.post('/api/polish-story-setup', async (req, res) => {
+  try {
+    const {
+      userInput,
+      characters = [],
+      worldbooks = [],
+      roleMap = {},
+      provider = 'gemini',
+      model = 'gemini-3.8-flash',
+      customApiKey,
+      customEndpoint,
+    } = req.body;
+
+    if (!userInput || !userInput.trim()) {
+      return res.status(400).json({ success: false, error: '请提供您的想法或灵感关键词' });
+    }
+
+    const apiKey = (customApiKey && customApiKey.trim()) || process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+      return res.status(400).json({ success: false, error: '未配置 API Key，无法使用 AI 智能润色' });
+    }
+
+    // Build context
+    const charContext = characters.length > 0
+      ? `登场角色：\n` + characters.map((c: any) => {
+          const roleLabel = roleMap[c.id] === 'protagonist' ? '【主角】' : roleMap[c.id] === 'extra' ? '【群演】' : '【配角】';
+          return `- ${c.name} ${roleLabel}（${c.identity || ''}）：${c.personality || ''}。背景：${c.background || ''}`;
+        }).join('\n')
+      : '暂未指定特定角色。';
+
+    const wbContext = worldbooks.length > 0
+      ? `世界观设定：\n` + worldbooks.map((w: any) => `- 《${w.name}》：${w.description || ''}`).join('\n')
+      : '';
+
+    const prompt = `你是一名顶级互动小说世界架构师与叙事总监。
+请根据玩家提供的原始想法/灵感需求，结合已选定的登场角色与世界观设定，进行深度文学润色、开局情境构建与写作规范提炼。
+必须严格输出合法的纯 JSON 格式（不要附带任何前缀解释、markdown代码块标记或多余文字），包含以下确切键：
+{
+  "title": "富有文学张力与画面感的故事存档标题（6-16字，如：极地孤影·誓约重燃、星渊长夜·破晓突围）",
+  "openingPremise": "开局背景与情境设定（生动、沉浸、富有代入感的开局环境描写与初遇戏剧性情境，交代时间、地点、氛围、主角与相关人物的初遇戏剧张力，约150-300字）",
+  "writingGuidance": "本场写作指导（提炼叙事基调、行文风格、冲突张力节奏、角色互动注意点等，约80-180字）"
+}
+
+【当前设定的角色与世界观背景】：
+${charContext}
+${wbContext}
+
+【玩家提供的原始想法/灵感描述】：
+"${userInput.trim()}"`;
+
+    let replyText = '';
+    if (provider === 'gemini') {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      const response = await ai.models.generateContent({
+        model: model || 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          temperature: 0.75,
+        },
+      });
+      replyText = response.text || '';
+    } else {
+      const endpoint = (customEndpoint || 'https://api.openai.com/v1').replace(/\/+$/, '');
+      const response = await fetch(`${endpoint}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: model || 'gpt-4o-mini',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.75,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`API 报错 (${response.status}): ${err.slice(0, 200)}`);
+      }
+      const data = await response.json();
+      replyText = data.choices?.[0]?.message?.content || '';
+    }
+
+    // Clean JSON markdown
+    let cleanJson = replyText.trim();
+    if (cleanJson.startsWith('```json')) {
+      cleanJson = cleanJson.slice(7);
+    } else if (cleanJson.startsWith('```')) {
+      cleanJson = cleanJson.slice(3);
+    }
+    if (cleanJson.endsWith('```')) {
+      cleanJson = cleanJson.slice(0, -3);
+    }
+    cleanJson = cleanJson.trim();
+
+    const parsed = JSON.parse(cleanJson);
+    return res.json({
+      success: true,
+      data: parsed,
+    });
+  } catch (error: any) {
+    console.error('Polish story setup error:', error);
+    return res.status(500).json({
+      success: false,
+      error: `AI 润色失败: ${error?.message || '解析异常'}`,
+    });
+  }
+});
+
 // Chat stream generation
 app.post('/api/chat/stream', async (req, res) => {
   try {

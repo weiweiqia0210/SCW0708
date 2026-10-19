@@ -660,3 +660,137 @@ export async function polishCharacter(params: {
     return { success: false, error: `解析异常: ${e.message}` };
   }
 }
+
+export interface StorySetupPolishResult {
+  title?: string;
+  openingPremise?: string;
+  writingGuidance?: string;
+}
+
+/**
+ * AI Polish Story Setup (Title, Opening Premise, Writing Guidance)
+ */
+export async function polishStorySetup(params: {
+  userInput: string;
+  characters?: any[];
+  worldbooks?: any[];
+  roleMap?: Record<string, string>;
+  provider: AIProvider;
+  model: string;
+  customApiKey?: string;
+  customEndpoint?: string;
+}): Promise<{ success: boolean; data?: StorySetupPolishResult; error?: string }> {
+  // Try backend proxy if available
+  if (backendAvailable !== false) {
+    try {
+      const res = await fetch('/api/polish-story-setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+
+      if (res.status !== 404) {
+        backendAvailable = true;
+        const result = await res.json();
+        return result;
+      }
+      backendAvailable = false;
+    } catch {
+      backendAvailable = false;
+    }
+  }
+
+  // Client-side fallback
+  const apiKey = params.customApiKey?.trim();
+  if (!apiKey) {
+    return { success: false, error: '静态部署模式下，请先在“设置”中填写 API Key' };
+  }
+
+  const charContext = (params.characters || []).length > 0
+    ? `登场角色：\n` + (params.characters || []).map((c: any) => {
+        const roleLabel = params.roleMap?.[c.id] === 'protagonist' ? '【主角】' : params.roleMap?.[c.id] === 'extra' ? '【群演】' : '【配角】';
+        return `- ${c.name} ${roleLabel}（${c.identity || ''}）：${c.personality || ''}。背景：${c.background || ''}`;
+      }).join('\n')
+    : '暂未指定特定角色。';
+
+  const wbContext = (params.worldbooks || []).length > 0
+    ? `世界观设定：\n` + (params.worldbooks || []).map((w: any) => `- 《${w.name}》：${w.description || ''}`).join('\n')
+    : '';
+
+  const prompt = `你是一名顶级互动小说世界架构师与叙事总监。
+请根据玩家提供的原始想法/灵感需求，结合已选定的登场角色与世界观设定，进行深度文学润色、开局情境构建与写作规范提炼。
+必须严格输出合法的纯 JSON 格式（不要附带任何前缀解释、markdown代码块标记或多余文字），包含以下确切键：
+{
+  "title": "富有文学张力与画面感的故事存档标题（6-16字，如：极地孤影·誓约重燃、星渊长夜·破晓突围）",
+  "openingPremise": "开局背景与情境设定（生动、沉浸、富有代入感的开局环境描写与初遇戏剧性情境，交代时间、地点、氛围、主角与相关人物的初遇戏剧张力，约150-300字）",
+  "writingGuidance": "本场写作指导（提炼叙事基调、行文风格、冲突张力节奏、角色互动注意点等，约80-180字）"
+}
+
+【当前设定的角色与世界观背景】：
+${charContext}
+${wbContext}
+
+【玩家提供的原始想法/灵感描述】：
+"${params.userInput.trim()}"`;
+
+  try {
+    let replyText = '';
+    if (params.provider === 'gemini') {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        params.model || 'gemini-3.8-flash'
+      )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.75 },
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        return { success: false, error: `Gemini 润色请求失败 (${res.status}): ${errText.slice(0, 200)}` };
+      }
+      const data = await res.json();
+      replyText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } else {
+      const endpoint = (params.customEndpoint || 'https://api.openai.com/v1').replace(/\/+$/, '');
+      const url = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: params.model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.75,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        return { success: false, error: `API 润色请求失败 (${res.status}): ${errText.slice(0, 200)}` };
+      }
+      const data = await res.json();
+      replyText = data.choices?.[0]?.message?.content || '';
+    }
+
+    let cleanJson = replyText.trim();
+    if (cleanJson.startsWith('```json')) {
+      cleanJson = cleanJson.slice(7);
+    } else if (cleanJson.startsWith('```')) {
+      cleanJson = cleanJson.slice(3);
+    }
+    if (cleanJson.endsWith('```')) {
+      cleanJson = cleanJson.slice(0, -3);
+    }
+    cleanJson = cleanJson.trim();
+
+    const parsed = JSON.parse(cleanJson);
+    return { success: true, data: parsed };
+  } catch (e: any) {
+    return { success: false, error: `解析异常: ${e.message}` };
+  }
+}
+

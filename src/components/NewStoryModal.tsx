@@ -16,6 +16,7 @@ import {
   Check,
   BookOpen,
   SlidersHorizontal,
+  Loader2,
 } from 'lucide-react';
 import {
   CharacterCard,
@@ -26,8 +27,11 @@ import {
   WordCountOption,
   UserMask,
   CharacterRoleType,
+  AppSettings,
 } from '../types';
 import { DEFAULT_INITIAL_STATS } from '../utils/defaultData';
+import { loadSettings } from '../utils/storage';
+import { polishStorySetup } from '../utils/aiService';
 
 interface NewStoryModalProps {
   isOpen: boolean;
@@ -69,6 +73,12 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
   const [title, setTitle] = useState('');
   const [openingPremise, setOpeningPremise] = useState('');
   const [writingGuidance, setWritingGuidance] = useState('');
+
+  // AI Polish Story Setup state
+  const [aiDraftInput, setAiDraftInput] = useState('');
+  const [isPolishing, setIsPolishing] = useState(false);
+  const [polishSuccess, setPolishSuccess] = useState(false);
+  const [polishError, setPolishError] = useState<string | null>(null);
 
   // Worldbooks & Presets multi-select
   const [selectedWorldBookIds, setSelectedWorldBookIds] = useState<string[]>(
@@ -124,6 +134,56 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
   const handleApplyInspiration = (insp: { title: string; premise: string }) => {
     setTitle(insp.title);
     setOpeningPremise(insp.premise);
+  };
+
+  const handleAIPolishSetup = async () => {
+    if (!aiDraftInput.trim() || isPolishing) return;
+    setIsPolishing(true);
+    setPolishError(null);
+    setPolishSuccess(false);
+
+    try {
+      const settings: AppSettings = loadSettings();
+
+      // Gather active characters
+      const charIds =
+        mode === 'single'
+          ? selectedCharacterId
+            ? [selectedCharacterId]
+            : []
+          : selectedMultiCharIds;
+      const activeCharObjs = characters.filter((c) => charIds.includes(c.id));
+      const activeWbObjs = worldbooks.filter((wb) => selectedWorldBookIds.includes(wb.id));
+
+      const result = await polishStorySetup({
+        userInput: aiDraftInput.trim(),
+        characters: activeCharObjs,
+        worldbooks: activeWbObjs,
+        roleMap: mode === 'multi' ? characterRoleMap : undefined,
+        provider: settings.provider,
+        model: settings.model,
+        customApiKey: settings.customApiKey,
+        customEndpoint: settings.customEndpoint,
+      });
+
+      if (!result.success || !result.data) {
+        throw new Error(result.error || 'AI 润色返回格式异常');
+      }
+
+      const { title: newTitle, openingPremise: newPremise, writingGuidance: newGuidance } = result.data;
+
+      if (newTitle) setTitle(newTitle.trim());
+      if (newPremise) setOpeningPremise(newPremise.trim());
+      if (newGuidance) setWritingGuidance(newGuidance.trim());
+
+      setPolishSuccess(true);
+      setTimeout(() => setPolishSuccess(false), 5000);
+    } catch (err: any) {
+      console.error('AI polish story setup error:', err);
+      setPolishError(err.message || '润色解析失败，请检查设置中的 API Key 或网络');
+    } finally {
+      setIsPolishing(false);
+    }
   };
 
   const handleToggleStat = (statId: string) => {
@@ -544,6 +604,59 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                 })
               )}
             </div>
+          </div>
+
+          {/* AI 灵感润色 */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="font-medium text-slate-700">开局灵感（选填）</label>
+              <button
+                type="button"
+                disabled={isPolishing || !aiDraftInput.trim()}
+                onClick={handleAIPolishSetup}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition-all cursor-pointer ${
+                  isPolishing || !aiDraftInput.trim()
+                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    : 'bg-sky-500 hover:bg-sky-600 text-white shadow-2xs active:scale-95'
+                }`}
+              >
+                {isPolishing ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>润色中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3 h-3" />
+                    <span>AI润色</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <textarea
+              rows={3}
+              value={aiDraftInput}
+              onChange={(e) => setAiDraftInput(e.target.value)}
+              placeholder="在此输入你的开局灵感或剧情想法，点击「AI润色」自动提炼并填入下方..."
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-sky-400 leading-relaxed"
+            />
+            {polishSuccess && (
+              <div className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1">
+                <Check className="w-3 h-3" /> 已自动填入下方标题、情境与写作指导
+              </div>
+            )}
+            {polishError && (
+              <div className="text-[10px] text-rose-500 mt-1 flex items-center justify-between">
+                <span>⚠️ {polishError}</span>
+                <button
+                  type="button"
+                  onClick={() => setPolishError(null)}
+                  className="text-rose-400 hover:text-rose-600 cursor-pointer ml-1"
+                >
+                  ×
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Title & Opening Scenario */}
