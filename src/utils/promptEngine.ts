@@ -13,6 +13,15 @@ export function buildSystemInstruction(
 你是一名顶尖的互动叙事大师与文学跑团DM。正在运行一场高质量、沉浸式的互动文游。
 请以深厚的文学造诣、细腻的情感笔触与画面感极强的分镜语言，为玩家呈现跌宕起伏的互动旅程。`);
 
+  if (save.mode === 'novel') {
+    parts.push(`【当前模式：沉浸式连载小说创作模式（Novel Mode）】
+本场文游以高水准长篇小说连载为叙事架构，请遵循严肃文学与精品流行小说的创作规范：
+1. 小说文学质感：注重环境构图、光影声色、时代质感、心理潜流与人物动作微表情，行文讲究文学美感与阅读沉浸感；
+2. 章节式叙事起伏：每轮推演如同一小节结构严谨的小说正文，承接前情并设置微悬念或情境转折，段落排版分明；
+3. 人物鲜活动态：出场角色的对话与心理动机紧密咬合，主次分明，顺应剧情因果水到渠成推进；
+4. 叙事连贯自然：将玩家的每次指令或互动自然化作小说情节发展的内在动力，以纯粹的小说正文呈现，绝不出戏或使用说教口吻。`);
+  }
+
   // Output word count range or free play
   if (save.config.wordCountConstraintEnabled) {
     const minW = save.config.wordCountMin ?? 300;
@@ -210,10 +219,19 @@ AI必须充分理解当前登场人物的戏份权重与重要度分布，让叙
   }
 
   // 6. Core Game Stats & Background Tracking System (Per-character independent tracking)
+  const isStatsTrackingActive = save.config.statsTrackingEnabled !== false;
   const disabledCharIds = save.disabledCharacterStatIds || [];
   const recalcPendingIds = save.recalcPendingCharacterIds || [];
+  const allActiveCharsDisabled = activeChars.length > 0 && activeChars.every((c) => disabledCharIds.includes(c.id));
+  const activeCharsNotDisabled = activeChars.filter((c) => !disabledCharIds.includes(c.id));
 
-  if (save.stats && save.stats.length > 0) {
+  if (!isStatsTrackingActive || allActiveCharsDisabled) {
+    parts.push(`【数值追踪系统已关闭（纯文学叙事模式）】：
+本场文游已完全关闭好感度与属性数值追踪系统${allActiveCharsDisabled ? '（登场角色状况追踪已设为关闭）' : ''}。
+1. 请专注于纯粹的文学描写、光影声色、情节因果推进与角色沉浸对话；
+2. 严禁在思考过程中计算任何角色的数值波动；
+3. 严禁在每轮回复中输出任何 <!--STATS_UPDATE--> 标签或数值变动信息，正文中亦严禁输出任何加减好感度等数值提示。`);
+  } else if (save.stats && save.stats.length > 0 && activeCharsNotDisabled.length > 0) {
     const validStatNames = Array.from(
       new Set(save.stats.filter((s) => s.enabled).map((s) => s.name))
     );
@@ -283,9 +301,9 @@ ${charStatsBlocks.join('\n\n')}
    单人好感度上限 100。达到 100 后锁定为 100 并开启【爱慕值】（0~100+），后续深情全部转入该角色的【爱慕值】；若好感度跌破 100，爱慕值自动消失。
 6. 后台追踪与本轮数值变动输出格式（必须分角色输出，且仅限上述有效白名单中的属性）：
    无论前台是否开启显示，只要角色状况未关闭，每轮回复最末尾必须分角色输出变动量（未变动的数值无需包含）：
-<!--STATS_UPDATE: {"${activeChars[0]?.name || '角色名'}": ${exampleDeltaObj}} -->
+<!--STATS_UPDATE: {"${activeCharsNotDisabled[0]?.name || '角色名'}": ${exampleDeltaObj}} -->
 若多名角色同时变动，必须分别归于各角色名下：
-<!--STATS_UPDATE: {"${activeChars[0]?.name || '角色A'}": {"${exampleStat1}": 2}, "${activeChars[1]?.name || '角色B'}": {"${exampleStat1}": -1}} -->
+<!--STATS_UPDATE: {"${activeCharsNotDisabled[0]?.name || '角色A'}": {"${exampleStat1}": 2}, "${activeCharsNotDisabled[1]?.name || '角色B'}": {"${exampleStat1}": -1}} -->
 （注意：JSON数值内请使用纯数字如 2 或 -1，不要带加号）`);
   }
 
@@ -415,6 +433,10 @@ export function parseAIResponseTags(rawText: string): ParsedAIResponse {
 
     cleanText = cleanText.replace(statsRegex, '');
   }
+
+  // Globally clean all stats comment tags from narrative text
+  cleanText = cleanText.replace(/<!--(?:STATS_UPDATE|STATS|STAT_UPDATE|STATS_DELTA|数值变动)[\s\S]*?-->/gi, '');
+  cleanText = cleanText.replace(/<!--STATS_RECALC[\s\S]*?-->/gi, '');
 
   // 3. Match inline THOUGHT tags: <!--THOUGHT:角色名:内容--> or <!--心声:角色名:内容-->
   // Support both English (:) and Chinese (：) colons

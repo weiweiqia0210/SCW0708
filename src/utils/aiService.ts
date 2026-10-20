@@ -794,3 +794,303 @@ ${wbContext}
   }
 }
 
+export interface EvaluatedStatItem {
+  id?: string;
+  name: string;
+  originalValue?: number;
+  suggestedValue: number;
+  minValue: number;
+  maxValue: number;
+  unit: string;
+  color?: 'sky' | 'rose' | 'amber' | 'emerald' | 'indigo' | 'violet';
+  reason: string;
+}
+
+export interface CharacterStatEvaluationResult {
+  characterId: string;
+  characterName: string;
+  hasAppeared: boolean;
+  appearanceStatusText: string;
+  rationale: string;
+  evaluatedStats: EvaluatedStatItem[];
+  suggestedNewStats?: EvaluatedStatItem[];
+}
+
+export async function evaluateCharacterStats(params: {
+  character: any;
+  allCharacters?: any[];
+  worldbooks?: any[];
+  roleMap?: Record<string, string>;
+  contextMessages?: Array<{ role: string; content: string }>;
+  openingPremise?: string;
+  storyTitle?: string;
+  currentStats?: any[];
+  forceMode?: 'auto' | 'context' | 'card_only';
+  provider: AIProvider;
+  model: string;
+  customApiKey?: string;
+  customEndpoint?: string;
+}): Promise<{ success: boolean; data?: CharacterStatEvaluationResult; error?: string }> {
+  // Try backend proxy first
+  if (backendAvailable !== false) {
+    try {
+      const res = await fetch('/api/evaluate-character-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+
+      if (res.status !== 404) {
+        backendAvailable = true;
+        const result = await res.json();
+        if (result.success && result.data) {
+          return {
+            success: true,
+            data: {
+              characterId: params.character.id,
+              characterName: params.character.name,
+              ...result.data,
+            },
+          };
+        }
+        return result;
+      }
+      backendAvailable = false;
+    } catch {
+      backendAvailable = false;
+    }
+  }
+
+  // Client-side fallback
+  const apiKey = params.customApiKey?.trim();
+  if (!apiKey) {
+    return { success: false, error: '静态部署模式下，请先在“设置”中填写 API Key' };
+  }
+
+  const { character, allCharacters = [], worldbooks = [], roleMap = {}, contextMessages = [], openingPremise = '', storyTitle = '', currentStats = [], forceMode = 'auto' } = params;
+  const recentDialogue = (contextMessages || []).slice(-12).map((m: any) => `${m.role === 'user' ? '【玩家】' : '【剧情】'}: ${m.content}`).join('\n\n');
+  const charSummary = `角色姓名：${character.name}\n身份职业：${character.identity || '未详'}\n性别/年龄：${character.gender || '未知'} / ${character.age || '未知'}\n性格特质：${character.personality || '未详'}\n身世背景：${character.background || '未详'}\n外貌神态：${character.appearance || '未详'}\n台词风格：${character.speechStyle || '未详'}\n特殊能力/专属信物/备注：${character.customNotes || '无'}\n定位：${roleMap[character.id] || character.roleType || '主角'}`;
+
+  const otherCharsSummary = (allCharacters || [])
+    .filter((c: any) => c.id !== character.id)
+    .map((c: any) => `- ${c.name}（${c.identity || ''}）：${c.personality || ''}`)
+    .join('\n');
+
+  const wbSummary = (worldbooks || []).length > 0
+    ? (worldbooks || []).map((w: any) => `- 《${w.name}》：${w.description || ''}\n` + (w.entries || []).slice(0, 5).map((e: any) => `  * [${e.name}]: ${e.content}`).join('\n')).join('\n')
+    : '无特定世界书设定。';
+
+  const statListStr = (currentStats || []).length > 0
+    ? (currentStats || []).map((s: any) => `- ${s.name}（当前值: ${s.currentValue}，范围: ${s.minValue}~${s.maxValue} ${s.unit || '点'}）`).join('\n')
+    : '- 精神值（当前值: 100，范围: 0~100 点）\n- 好感度（当前值: 0，范围: 0~100 点）\n- 体能（当前值: 100，范围: 0~100 点）';
+
+  const prompt = `你是一名顶级互动小说与跑团RPG的数值与人设数值架构大师。
+玩家正在进行互动故事创作，现需要为角色【${character.name}】进行深度的【AI智能赋值】。
+以往系统往往在进场建档时默认给所有角色赋予完全相同的初始数值（如千篇一律的满分100或0），然后机械地在此基础上加减，严重缺乏真实代入感与人设差异。
+请你根据以下信息，严格进行科学、细腻、具有文学说服力的智能赋值：
+
+【故事基本背景】：
+标题：${storyTitle || '互动故事'}
+开局情境设定：${openingPremise || '无特定开局描写'}
+
+【故事正文最新剧情上下文】：
+${recentDialogue || '（当前故事尚无正文剧情，仅有开局情境）'}
+
+【目标角色档案（${character.name}）】：
+${charSummary}
+
+【其他登场角色】：
+${otherCharsSummary || '无其他角色'}
+
+【世界观与规则设定（世界书）】：
+${wbSummary}
+
+【该角色当前属性列表】：
+${statListStr}
+
+【强制模式说明】：${forceMode === 'context' ? '强制视为已登场角色进行剧情推演赋值' : forceMode === 'card_only' ? '强制视为未登场角色，依据角色卡与世界书赋予初始基准值' : '自动综合判定'}
+
+【赋值核心逻辑与任务要求】：
+1. 出场状态判断（hasAppeared）：
+   - 检查该角色是否已在【开局情境】或【正文剧情】中正式登场有言行活动。
+   - 若已在剧情中出场（或 forceMode='context'）：hasAppeared 设为 true。请深入分析该角色在剧情中经历的遭遇（是否有创伤、疲惫、逃亡、搏杀，还是处于安逸；与主角或他人的互动是否建立了信任、怀疑或感激）。据此为每一项属性计算【当前真实状态数值】。
+   - 若尚未在剧情中出场（或 forceMode='card_only'）：hasAppeared 设为 false。请完全基于其【角色卡】身世背景、性格气质与世界书，打破千篇一律的通用模板，为其量身定制【专属出场基准初始值】（例如饱经沧桑或身心疲惫的人物初始精神值可为65-75；戒备冷漠的角色初始好感可为负或5；擅长武技的角色体能高昂等）。
+2. 对当前各属性进行合理重估（evaluatedStats）：
+   - 为现有属性列表中每一项给出 suggestedValue（必须在 minValue 与 maxValue 之间）。
+   - 给出简短有力的 reason（文学理由，30字以内，点明剧情依据或人设依据）。
+3. 推荐专属新属性（suggestedNewStats，可选1-2项）：
+   - 如果该角色的特殊身份或世界观规则适合追加特异性属性（如魔力值、黑化度、理智值、戒备心、忠诚度等），可推荐1-2项；若无需追加可为空数组 []。
+4. 深度评估综述（rationale）：
+   - 写一段生动、严谨、有文学深度的赋值剖析说明（100-250字），解释当前数值的设定逻辑。
+
+必须严格输出合法的纯 JSON 格式（不要附带任何前缀解释、markdown代码块标记或多余文字），包含以下键：
+{
+  "hasAppeared": true,
+  "appearanceStatusText": "已在剧情中出场 · 正经历废墟避难阶段",
+  "rationale": "详细说明为什么这样赋值，分析角色的剧情遭遇或人设特质...",
+  "evaluatedStats": [
+    {
+      "name": "精神值",
+      "suggestedValue": 68,
+      "minValue": 0,
+      "maxValue": 100,
+      "unit": "点",
+      "color": "sky",
+      "reason": "刚刚逃离坍塌区，心神紧绷，处于应激警戒期"
+    }
+  ],
+  "suggestedNewStats": [
+    {
+      "name": "戒心值",
+      "suggestedValue": 80,
+      "minValue": 0,
+      "maxValue": 100,
+      "unit": "点",
+      "color": "amber",
+      "reason": "出于间谍身份本能，对外界环境保持高度戒备"
+    }
+  ]
+}`;
+
+  try {
+    let replyText = '';
+    if (params.provider === 'gemini') {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        params.model || 'gemini-3.8-flash'
+      )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7 },
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        return { success: false, error: `Gemini 智能赋值失败 (${res.status}): ${errText.slice(0, 200)}` };
+      }
+      const data = await res.json();
+      replyText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } else {
+      const endpoint = (params.customEndpoint || 'https://api.openai.com/v1').replace(/\/+$/, '');
+      const url = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: params.model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        return { success: false, error: `API 智能赋值失败 (${res.status}): ${errText.slice(0, 200)}` };
+      }
+      const data = await res.json();
+      replyText = data.choices?.[0]?.message?.content || '';
+    }
+
+    let cleanJson = replyText.trim();
+    if (cleanJson.startsWith('```json')) {
+      cleanJson = cleanJson.slice(7);
+    } else if (cleanJson.startsWith('```')) {
+      cleanJson = cleanJson.slice(3);
+    }
+    if (cleanJson.endsWith('```')) {
+      cleanJson = cleanJson.slice(0, -3);
+    }
+    cleanJson = cleanJson.trim();
+    const match = cleanJson.match(/\{[\s\S]*\}/);
+    if (match) cleanJson = match[0];
+
+    const parsed = JSON.parse(cleanJson);
+    return {
+      success: true,
+      data: {
+        characterId: character.id,
+        characterName: character.name,
+        ...parsed,
+      },
+    };
+  } catch (e: any) {
+    return { success: false, error: `解析异常: ${e.message}` };
+  }
+}
+
+export async function batchEvaluateCharacterStats(params: {
+  characters: any[];
+  worldbooks?: any[];
+  roleMap?: Record<string, string>;
+  contextMessages?: Array<{ role: string; content: string }>;
+  openingPremise?: string;
+  storyTitle?: string;
+  currentStats?: any[];
+  provider: AIProvider;
+  model: string;
+  customApiKey?: string;
+  customEndpoint?: string;
+}): Promise<{ success: boolean; data?: { evaluations: CharacterStatEvaluationResult[] }; error?: string }> {
+  // Try backend proxy first
+  if (backendAvailable !== false) {
+    try {
+      const res = await fetch('/api/batch-evaluate-character-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+
+      if (res.status !== 404) {
+        backendAvailable = true;
+        const result = await res.json();
+        return result;
+      }
+      backendAvailable = false;
+    } catch {
+      backendAvailable = false;
+    }
+  }
+
+  // Fallback: evaluate sequentially or in parallel using evaluateCharacterStats
+  try {
+    const results = await Promise.all(
+      params.characters.map((char) =>
+        evaluateCharacterStats({
+          character: char,
+          allCharacters: params.characters,
+          worldbooks: params.worldbooks,
+          roleMap: params.roleMap,
+          contextMessages: params.contextMessages,
+          openingPremise: params.openingPremise,
+          storyTitle: params.storyTitle,
+          currentStats: params.currentStats,
+          provider: params.provider,
+          model: params.model,
+          customApiKey: params.customApiKey,
+          customEndpoint: params.customEndpoint,
+        })
+      )
+    );
+
+    const successfulEvaluations = results
+      .filter((r) => r.success && r.data)
+      .map((r) => r.data as CharacterStatEvaluationResult);
+
+    if (successfulEvaluations.length === 0) {
+      return { success: false, error: results[0]?.error || '批量赋值失败' };
+    }
+
+    return {
+      success: true,
+      data: { evaluations: successfulEvaluations },
+    };
+  } catch (e: any) {
+    return { success: false, error: `批量赋值异常: ${e.message}` };
+  }
+}
+
+

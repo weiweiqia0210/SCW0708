@@ -18,6 +18,7 @@ import {
   AppSettings,
   ActiveNavTab,
   UserMask,
+  StoryMode,
 } from './types';
 import {
   loadCharacters,
@@ -60,6 +61,7 @@ export default function App() {
 
   // Modals state
   const [isNewStoryModalOpen, setIsNewStoryModalOpen] = useState(false);
+  const [newStoryInitialMode, setNewStoryInitialMode] = useState<StoryMode>('single');
 
   const [charModalOpen, setCharModalOpen] = useState(false);
   const [selectedCharacter, setSelectedCharacter] = useState<CharacterCard | null>(null);
@@ -283,7 +285,10 @@ export default function App() {
                 worldbookCount={worldbooks.length}
                 presetCount={presets.length}
                 onContinueSave={handleOpenSave}
-                onOpenNewStoryModal={() => setIsNewStoryModalOpen(true)}
+                onOpenNewStoryModal={(mode) => {
+                  setNewStoryInitialMode(mode || 'single');
+                  setIsNewStoryModalOpen(true);
+                }}
                 onNavigateToTab={(tab) => setActiveTab(tab)}
               />
             )}
@@ -357,6 +362,7 @@ export default function App() {
       {/* Modals */}
       <NewStoryModal
         isOpen={isNewStoryModalOpen}
+        initialMode={newStoryInitialMode}
         characters={characters}
         worldbooks={worldbooks}
         presets={presets}

@@ -25,7 +25,7 @@ export const ShelfView: React.FC<ShelfViewProps> = ({
   onOpenNewStory,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [modeFilter, setModeFilter] = useState<'all' | 'single' | 'multi'>('all');
+  const [modeFilter, setModeFilter] = useState<'all' | 'single' | 'multi' | 'novel'>('all');
   const [editingSaveId, setEditingSaveId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [saveToDelete, setSaveToDelete] = useState<StorySave | null>(null);
@@ -183,6 +183,16 @@ export const ShelfView: React.FC<ShelfViewProps> = ({
         >
           群像档
         </button>
+        <button
+          onClick={() => setModeFilter('novel')}
+          className={`px-3 py-1 rounded-lg border transition-all ${
+            modeFilter === 'novel'
+              ? 'border-indigo-400 bg-indigo-50 text-indigo-700 font-medium'
+              : 'border-slate-200 text-slate-500 hover:border-slate-300'
+          }`}
+        >
+          小说档
+        </button>
       </div>
 
       {/* Saves List */}
@@ -239,8 +249,16 @@ export const ShelfView: React.FC<ShelfViewProps> = ({
                         <h3 className="font-semibold text-slate-800 text-sm truncate">
                           {save.title}
                         </h3>
-                        <span className="shrink-0 text-[10px] px-1.5 py-0.2 rounded bg-sky-50 text-sky-600 font-medium">
-                          {save.mode === 'single' ? '单人' : '群像'}
+                        <span
+                          className={`shrink-0 text-[10px] px-1.5 py-0.2 rounded font-medium ${
+                            save.mode === 'novel'
+                              ? 'bg-indigo-50 text-indigo-700 border border-indigo-100'
+                              : save.mode === 'single'
+                              ? 'bg-slate-100 text-slate-600'
+                              : 'bg-amber-50 text-amber-700'
+                          }`}
+                        >
+                          {save.mode === 'novel' ? '小说' : save.mode === 'single' ? '单人' : '群像'}
                         </span>
                       </div>
                     )}

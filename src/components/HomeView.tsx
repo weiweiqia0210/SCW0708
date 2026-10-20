@@ -1,6 +1,6 @@
 import React from 'react';
 import { Play, Plus, BookOpen, Clock, Users, ArrowRight, UserCircle, Book, Sliders } from 'lucide-react';
-import { StorySave, CharacterCard } from '../types';
+import { StorySave, CharacterCard, StoryMode } from '../types';
 
 interface HomeViewProps {
   saves: StorySave[];
@@ -8,7 +8,7 @@ interface HomeViewProps {
   worldbookCount: number;
   presetCount: number;
   onContinueSave: (saveId: string) => void;
-  onOpenNewStoryModal: () => void;
+  onOpenNewStoryModal: (initialMode?: StoryMode) => void;
   onNavigateToTab: (tab: 'create' | 'shelf' | 'settings' | 'profile') => void;
 }
 
@@ -100,22 +100,43 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       ) : null}
 
-      {/* Primary CTA: New Story Button */}
-      <button
-        onClick={onOpenNewStoryModal}
-        className="w-full flex items-center justify-between p-4 rounded-2xl bg-white border border-sky-200 shadow-sm hover:border-sky-300 hover:shadow-md transition-all group active:scale-[0.99] text-left cursor-pointer"
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center border border-sky-100 group-hover:bg-sky-500 group-hover:text-white transition-colors">
-            <Plus className="w-5 h-5" />
+      {/* Primary CTAs: New Story & Novel Mode */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <button
+          onClick={() => onOpenNewStoryModal('single')}
+          className="flex items-center justify-between p-3.5 rounded-2xl bg-white border border-sky-200 shadow-xs hover:border-sky-300 hover:shadow-sm transition-all group active:scale-[0.99] text-left cursor-pointer"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center border border-sky-100 group-hover:bg-sky-500 group-hover:text-white transition-colors shrink-0">
+              <Plus className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-slate-800 truncate">新建文游开档</div>
+              <div className="text-xs text-slate-400 truncate">单人专属 / 多人群像互动档</div>
+            </div>
           </div>
-          <div>
-            <div className="text-sm font-semibold text-slate-800">新建文游开档</div>
-            <div className="text-xs text-slate-400">单人专属角色 / 多人群像世界档</div>
+          <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-sky-500 group-hover:translate-x-0.5 transition-all shrink-0" />
+        </button>
+
+        <button
+          onClick={() => onOpenNewStoryModal('novel')}
+          className="flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-white via-indigo-50/20 to-purple-50/30 border border-indigo-200/90 shadow-xs hover:border-indigo-300 hover:shadow-sm transition-all group active:scale-[0.99] text-left cursor-pointer"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-slate-800 flex items-center gap-1.5 truncate">
+                <span>新建小说模式</span>
+                <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-indigo-100 text-indigo-700 font-medium">新模式</span>
+              </div>
+              <div className="text-xs text-indigo-500/80 truncate">沉浸连载长篇 · 章节推演</div>
+            </div>
           </div>
-        </div>
-        <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-sky-500 group-hover:translate-x-0.5 transition-all" />
-      </button>
+          <ArrowRight className="w-4 h-4 text-indigo-300 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all shrink-0" />
+        </button>
+      </div>
 
       {/* Quick Access to Creative Materials */}
       <div>
@@ -192,8 +213,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     <span className="text-xs font-semibold text-slate-800 truncate">
                       {save.title}
                     </span>
-                    <span className="shrink-0 text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-500">
-                      {save.mode === 'single' ? '单人' : '群像'}
+                    <span className={`shrink-0 text-[10px] px-1.5 py-0.2 rounded font-medium ${
+                      save.mode === 'novel'
+                        ? 'bg-indigo-50 text-indigo-700'
+                        : save.mode === 'single'
+                        ? 'bg-slate-100 text-slate-500'
+                        : 'bg-amber-50 text-amber-700'
+                    }`}>
+                      {save.mode === 'novel' ? '小说' : save.mode === 'single' ? '单人' : '群像'}
                     </span>
                   </div>
                   <div className="text-[11px] text-slate-400 truncate">

@@ -46,6 +46,7 @@ import {
 import { buildSystemInstruction, parseAIResponseTags } from '../utils/promptEngine';
 import { saveSingleStory } from '../utils/storage';
 import { streamChat } from '../utils/aiService';
+import { AiStatEvaluationModal } from './AiStatEvaluationModal';
 
 // Helper to ensure each character in save has their own independent set of stats
 function normalizeSaveStats(save: StorySave, characters: CharacterCard[]): GameStatDefinition[] {
@@ -341,6 +342,81 @@ export const ChatView: React.FC<ChatViewProps> = ({
       updatedAt: Date.now(),
     };
     commitSave(next);
+  };
+
+  // AI Smart Stat Assignment Modal State
+  const [isAiStatModalOpen, setIsAiStatModalOpen] = useState(false);
+  const [aiStatTargetCharacter, setAiStatTargetCharacter] = useState<CharacterCard | null>(null);
+
+  const handleApplySingleAiStats = (
+    characterId: string,
+    updatedExistingStats: { id: string; newValue: number }[],
+    newStatsToAppend: GameStatDefinition[]
+  ) => {
+    let nextStats = [...currentSave.stats];
+    const updateMap = new Map(updatedExistingStats.map((u) => [u.id, u.newValue]));
+    nextStats = nextStats.map((s) => {
+      if (updateMap.has(s.id)) {
+        return {
+          ...s,
+          currentValue: updateMap.get(s.id)!,
+          lastDelta: 0,
+        };
+      }
+      return s;
+    });
+
+    if (newStatsToAppend.length > 0) {
+      nextStats.push(...newStatsToAppend);
+    }
+
+    const updated = {
+      ...currentSave,
+      stats: nextStats,
+      updatedAt: Date.now(),
+    };
+    commitSave(updated);
+  };
+
+  const handleApplyBatchAiStats = (
+    batchUpdates: {
+      characterId: string;
+      updatedExistingStats: { id: string; newValue: number }[];
+      newStatsToAppend: GameStatDefinition[];
+    }[]
+  ) => {
+    let nextStats = [...currentSave.stats];
+    const allUpdates = new Map<string, number>();
+    const allNewStats: GameStatDefinition[] = [];
+
+    batchUpdates.forEach((b) => {
+      b.updatedExistingStats.forEach((u) => {
+        allUpdates.set(u.id, u.newValue);
+      });
+      allNewStats.push(...b.newStatsToAppend);
+    });
+
+    nextStats = nextStats.map((s) => {
+      if (allUpdates.has(s.id)) {
+        return {
+          ...s,
+          currentValue: allUpdates.get(s.id)!,
+          lastDelta: 0,
+        };
+      }
+      return s;
+    });
+
+    if (allNewStats.length > 0) {
+      nextStats.push(...allNewStats);
+    }
+
+    const updated = {
+      ...currentSave,
+      stats: nextStats,
+      updatedAt: Date.now(),
+    };
+    commitSave(updated);
   };
 
   // Append option text to input box for secondary editing
@@ -948,27 +1024,44 @@ ${revisionOriginalText}
 
       // Strict whitelist filtering: Only keep stats that actually exist and are enabled in activeSaveState.stats!
       // Any deleted stat (e.g. 戒备值) is strictly excluded and cannot affect game data or appear in outputs.
+      const isStatsTrackingActive = activeSaveState.config.statsTrackingEnabled !== false;
+      const disabledCharIds = new Set(activeSaveState.disabledCharacterStatIds || []);
+      const allActiveCharsDisabled = activeChars.length > 0 && activeChars.every((c) => disabledCharIds.has(c.id));
       const validStatNames = new Set(
         (activeSaveState.stats || []).filter((s) => s.enabled).map((s) => s.name)
       );
 
       const filteredStatsDelta: Record<string, number> = {};
-      for (const [k, v] of Object.entries(statsDelta)) {
-        if (validStatNames.has(k)) {
-          filteredStatsDelta[k] = v;
-        }
-      }
-
       const filteredStatsDeltaByCharacter: Record<string, Record<string, number>> = {};
-      for (const [cName, dMap] of Object.entries(statsDeltaByCharacter)) {
-        const charDeltas: Record<string, number> = {};
-        for (const [sName, sVal] of Object.entries(dMap)) {
-          if (validStatNames.has(sName)) {
-            charDeltas[sName] = sVal;
+
+      if (isStatsTrackingActive && !allActiveCharsDisabled) {
+        for (const [cName, dMap] of Object.entries(statsDeltaByCharacter)) {
+          // Exclude any character whose status tracking is disabled
+          const matchedChar = activeChars.find(
+            (c) => c.name === cName || cName.includes(c.name) || c.name.includes(cName)
+          );
+          if (matchedChar && disabledCharIds.has(matchedChar.id)) {
+            continue;
+          }
+
+          const charDeltas: Record<string, number> = {};
+          for (const [sName, sVal] of Object.entries(dMap)) {
+            if (validStatNames.has(sName)) {
+              charDeltas[sName] = sVal;
+            }
+          }
+          if (Object.keys(charDeltas).length > 0) {
+            filteredStatsDeltaByCharacter[cName] = charDeltas;
           }
         }
-        if (Object.keys(charDeltas).length > 0) {
-          filteredStatsDeltaByCharacter[cName] = charDeltas;
+
+        // Only keep flat stats delta for characters that are not disabled
+        if (Object.keys(filteredStatsDeltaByCharacter).length > 0 || (activeChars.length === 1 && !disabledCharIds.has(activeChars[0]?.id))) {
+          for (const [k, v] of Object.entries(statsDelta)) {
+            if (validStatNames.has(k)) {
+              filteredStatsDelta[k] = v;
+            }
+          }
         }
       }
 
@@ -983,15 +1076,17 @@ ${revisionOriginalText}
         timestamp: Date.now(),
       };
 
-      // Always update stats in the background per character (honoring disabled status, recalc, and affection rules)
-      const updatedStats = applyStatsUpdate(
-        activeSaveState.stats,
-        filteredStatsDelta,
-        filteredStatsDeltaByCharacter,
-        recalcStats,
-        activeChars,
-        activeSaveState.disabledCharacterStatIds || []
-      );
+      // Only update stats when stats tracking is active
+      const updatedStats = isStatsTrackingActive
+        ? applyStatsUpdate(
+            activeSaveState.stats,
+            filteredStatsDelta,
+            filteredStatsDeltaByCharacter,
+            recalcStats,
+            activeChars,
+            activeSaveState.disabledCharacterStatIds || []
+          )
+        : activeSaveState.stats;
 
       // If recalcStats arrived, remove recalculated characters from recalcPendingCharacterIds
       let nextRecalcPending = activeSaveState.recalcPendingCharacterIds || [];
@@ -1193,6 +1288,18 @@ ${revisionOriginalText}
               {currentSave.title}
             </h1>
             <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+              <span
+                className={`px-1.5 py-0.2 rounded font-medium ${
+                  currentSave.mode === 'novel'
+                    ? 'bg-indigo-50 text-indigo-700 border border-indigo-100'
+                    : currentSave.mode === 'multi'
+                    ? 'bg-amber-50 text-amber-700 border border-amber-100'
+                    : 'bg-sky-50 text-sky-700 border border-sky-100'
+                }`}
+              >
+                {currentSave.mode === 'novel' ? '小说模式' : currentSave.mode === 'multi' ? '群像模式' : '单人模式'}
+              </span>
+              <span>·</span>
               <span className="truncate">
                 {activeChars.map((c) => c.name).join('、') || '角色'}
               </span>
@@ -1211,11 +1318,18 @@ ${revisionOriginalText}
         {/* Right Action: Drawer toggle */}
         <div className="flex items-center gap-1.5 shrink-0">
           <button
-            onClick={() => setDrawerOpen(true)}
+            onClick={() => {
+              if (!currentSave.config.statsTrackingEnabled && activeDrawerTab === 'stats') {
+                setActiveDrawerTab('settings');
+              }
+              setDrawerOpen(true);
+            }}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100/80 text-sky-700 text-xs font-medium border border-sky-200/80 transition-colors cursor-pointer"
           >
             <Sliders className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">数值与设定</span>
+            <span className="hidden sm:inline">
+              {currentSave.config.statsTrackingEnabled ? '数值与设定' : '文游设置'}
+            </span>
           </button>
         </div>
       </header>
@@ -1410,9 +1524,18 @@ ${revisionOriginalText}
 
                     {/* Numerical Stats Delta Badge - Separated by character & Folded by default */}
                     {(() => {
+                      if (!currentSave.config.statsTrackingEnabled) return null;
+
                       const validStatNames = new Set(
                         currentSave.stats.filter((s) => s.enabled).map((s) => s.name)
                       );
+                      if (validStatNames.size === 0) return null;
+
+                      const disabledCharIds = new Set(currentSave.disabledCharacterStatIds || []);
+                      // If all active characters are disabled, do not show any stats delta badge
+                      if (activeChars.length > 0 && activeChars.every((c) => disabledCharIds.has(c.id))) {
+                        return null;
+                      }
 
                       let rawCharDeltas: Record<string, Record<string, number>> = msg.statsDeltaByCharacter || {};
 
@@ -1425,9 +1548,17 @@ ${revisionOriginalText}
                         rawCharDeltas = { [defaultCharName]: msg.statsDelta };
                       }
 
-                      // Only retain deltas for stats currently present and enabled in the save
+                      // Only retain deltas for stats currently present and enabled in the save,
+                      // and strictly skip characters whose status tracking is disabled!
                       const charDeltas: Record<string, Record<string, number>> = {};
                       for (const [cName, dMap] of Object.entries(rawCharDeltas)) {
+                        const matchedChar = activeChars.find(
+                          (c) => c.name === cName || cName.includes(c.name) || c.name.includes(cName)
+                        );
+                        if (matchedChar && disabledCharIds.has(matchedChar.id)) {
+                          continue; // Character status is disabled, exclude!
+                        }
+
                         const validMap: Record<string, number> = {};
                         for (const [sName, sVal] of Object.entries(dMap)) {
                           if (validStatNames.has(sName)) {
@@ -1867,7 +1998,12 @@ ${revisionOriginalText}
                     : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
-                数值状态
+                <span>数值状态</span>
+                {!currentSave.config.statsTrackingEnabled && (
+                  <span className="ml-1 text-[9px] px-1 py-0.2 rounded bg-slate-100 text-slate-400 font-normal">
+                    已关
+                  </span>
+                )}
               </button>
               <button
                 onClick={() => setActiveDrawerTab('characters')}
@@ -1906,23 +2042,6 @@ ${revisionOriginalText}
               {/* Tab 1: Stats (Per-character status toggle & collapsible attributes) */}
               {activeDrawerTab === 'stats' && (
                 <div className="space-y-3">
-                  {!currentSave.config.statsTrackingEnabled && (
-                    <div className="p-2.5 rounded-xl bg-sky-50 border border-sky-200/80 text-sky-800 text-[11px] flex items-center justify-between">
-                      <span>后台持续实时记录中</span>
-                      <button
-                        onClick={() => {
-                          const next = {
-                            ...currentSave,
-                            config: { ...currentSave.config, statsTrackingEnabled: true },
-                          };
-                          commitSave(next);
-                        }}
-                        className="px-2 py-0.5 bg-sky-500 hover:bg-sky-600 text-white rounded text-[10px] font-medium transition-colors cursor-pointer"
-                      >
-                        开启前台展示
-                      </button>
-                    </div>
-                  )}
 
                   {/* Active User Mask indicator or Observer Mode */}
                   {!isMaskEnabled ? (
@@ -2012,9 +2131,52 @@ ${revisionOriginalText}
                     </div>
                   ) : null}
 
-                  <div className="text-[11px] text-slate-400">
-                    各登场角色的实时状况与独立属性数值：
-                  </div>
+                  {!currentSave.config.statsTrackingEnabled ? (
+                    <div className="py-8 px-4 text-center bg-slate-50/80 rounded-2xl border border-dashed border-slate-200 space-y-3">
+                      <div className="w-10 h-10 mx-auto rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center">
+                        <Sliders className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-slate-700 text-xs">数值追踪已关闭</div>
+                        <div className="text-[11px] text-slate-400 mt-1 max-w-xs mx-auto leading-relaxed">
+                          当前文游已关闭数值追踪。正文中不会出现数值变动面板，后台亦不会计算好感度与属性波动，专注于纯文学沉浸推演。
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = {
+                            ...currentSave,
+                            config: { ...currentSave.config, statsTrackingEnabled: true },
+                          };
+                          commitSave(next);
+                        }}
+                        className="px-3.5 py-1.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white rounded-xl text-xs font-medium transition-colors shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                      >
+                        重新开启数值追踪
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[11px] text-slate-400">
+                          各登场角色的实时状况与独立属性数值：
+                        </div>
+                        {activeChars.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAiStatTargetCharacter(null);
+                              setIsAiStatModalOpen(true);
+                            }}
+                            className="px-2.5 py-1 text-[10px] font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg shadow-2xs flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                            title="一键根据剧情上下文与角色卡，对全部角色进行AI智能赋值"
+                          >
+                            <Sparkles className="w-3 h-3 text-violet-600" />
+                            <span>全员AI智能赋值</span>
+                          </button>
+                        )}
+                      </div>
 
                   {activeChars.length === 0 ? (
                     <div className="py-8 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
@@ -2070,7 +2232,22 @@ ${revisionOriginalText}
                             </div>
 
                             {/* Status toggle & Expand chevron */}
-                            <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                              {/* AI Smart Assign Button on Card Header */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAiStatTargetCharacter(char);
+                                  setIsAiStatModalOpen(true);
+                                }}
+                                className="px-2 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer flex items-center gap-1 bg-gradient-to-r from-violet-50 to-indigo-50 text-violet-700 border-violet-200 hover:from-violet-100 hover:to-indigo-100 hover:border-violet-300 active:scale-95 shadow-2xs"
+                                title="根据故事上下文、剧情推演与角色卡，为该角色进行AI智能赋值"
+                              >
+                                <Sparkles className="w-3 h-3 text-violet-600" />
+                                <span>AI赋值</span>
+                              </button>
+
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -2107,6 +2284,33 @@ ${revisionOriginalText}
                           {/* Expanded Attributes Panel */}
                           {isExpanded && (
                             <div className="p-3 border-t border-slate-100 space-y-2.5">
+                              {/* AI Smart Assignment Highlight Bar inside Attributes container */}
+                              <div className="p-2.5 rounded-xl bg-gradient-to-r from-violet-50/90 via-indigo-50/60 to-sky-50/90 border border-violet-200/90 flex items-center justify-between gap-2 shadow-2xs">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-6 h-6 rounded-lg bg-violet-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-bold text-violet-900 truncate">
+                                      AI 智能数值赋值
+                                    </div>
+                                    <div className="text-[10px] text-violet-700/80 truncate">
+                                      已出场按正文剧情推演，未出场按角色卡赋予初值
+                                    </div>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAiStatTargetCharacter(char);
+                                    setIsAiStatModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-bold text-[11px] rounded-lg shadow-2xs transition-all active:scale-95 cursor-pointer shrink-0 flex items-center gap-1"
+                                >
+                                  <Sparkles className="w-3 h-3" />
+                                  <span>智能评估赋值</span>
+                                </button>
+                              </div>
                               {isCharDisabled ? (
                                 <div className="py-3 px-3 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-center space-y-1">
                                   <p className="text-xs font-semibold text-slate-600">
@@ -2296,6 +2500,8 @@ ${revisionOriginalText}
                         </div>
                       );
                     })
+                  )}
+                    </>
                   )}
                 </div>
               )}
@@ -2644,7 +2850,19 @@ ${revisionOriginalText}
                         />
                       </label>
 
-                      <label className="flex items-center justify-between cursor-pointer">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          const nextVal = !currentSave.config.branchChoicesEnabled;
+                          const next = {
+                            ...currentSave,
+                            config: { ...currentSave.config, branchChoicesEnabled: nextVal },
+                          };
+                          commitSave(next);
+                        }}
+                        className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-100/70 cursor-pointer select-none transition-colors"
+                      >
                         <span className="text-slate-700 text-xs">剧情选项建议</span>
                         <input
                           type="checkbox"
@@ -2656,12 +2874,28 @@ ${revisionOriginalText}
                             };
                             commitSave(next);
                           }}
+                          onClick={(e) => e.stopPropagation()}
                           className="accent-sky-500 w-4 h-4 rounded cursor-pointer"
                         />
-                      </label>
+                      </div>
 
-                      <label className="flex items-center justify-between cursor-pointer">
-                        <span className="text-slate-700 text-xs">数值追踪开关</span>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          const nextVal = !currentSave.config.statsTrackingEnabled;
+                          const next = {
+                            ...currentSave,
+                            config: { ...currentSave.config, statsTrackingEnabled: nextVal },
+                          };
+                          commitSave(next);
+                        }}
+                        className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-100/70 cursor-pointer select-none transition-colors"
+                      >
+                        <div>
+                          <span className="text-slate-700 text-xs font-medium block">数值追踪开关</span>
+                          <span className="text-[10px] text-slate-400">关闭后正文不展示数值变动，后台不计算好感度</span>
+                        </div>
                         <input
                           type="checkbox"
                           checked={currentSave.config.statsTrackingEnabled}
@@ -2672,9 +2906,10 @@ ${revisionOriginalText}
                             };
                             commitSave(next);
                           }}
+                          onClick={(e) => e.stopPropagation()}
                           className="accent-sky-500 w-4 h-4 rounded cursor-pointer"
                         />
-                      </label>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2902,6 +3137,22 @@ ${revisionOriginalText}
           </div>
         </div>
       )}
+
+      {/* AI Smart Character Stat Assignment Modal */}
+      <AiStatEvaluationModal
+        isOpen={isAiStatModalOpen}
+        onClose={() => {
+          setIsAiStatModalOpen(false);
+          setAiStatTargetCharacter(null);
+        }}
+        targetCharacter={aiStatTargetCharacter}
+        allCharacters={activeChars}
+        currentSave={currentSave}
+        worldbooks={worldbooks}
+        settings={settings}
+        onApplySingle={handleApplySingleAiStats}
+        onApplyBatch={handleApplyBatchAiStats}
+      />
     </div>
   );
 };

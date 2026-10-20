@@ -122,11 +122,13 @@ export interface StorySaveConfig {
   writingGuidance?: string; // 本场写作指导
 }
 
+export type StoryMode = 'single' | 'multi' | 'novel';
+
 export interface StorySave {
   id: string;
   title: string;
   summary: string;
-  mode: 'single' | 'multi';
+  mode: StoryMode;
   characterIds: string[];
   characterRoleMap?: Record<string, CharacterRoleType>; // 多人模式角色分层：主角 / 配角 / 群演
   worldBookId?: string; // 单个关联（兼容旧存档）

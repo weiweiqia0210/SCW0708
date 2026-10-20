@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Sparkles,
@@ -28,10 +28,11 @@ import {
   UserMask,
   CharacterRoleType,
   AppSettings,
+  StoryMode,
 } from '../types';
 import { DEFAULT_INITIAL_STATS } from '../utils/defaultData';
 import { loadSettings } from '../utils/storage';
-import { polishStorySetup } from '../utils/aiService';
+import { polishStorySetup, batchEvaluateCharacterStats } from '../utils/aiService';
 
 interface NewStoryModalProps {
   isOpen: boolean;
@@ -40,6 +41,7 @@ interface NewStoryModalProps {
   presets: SystemPreset[];
   userMasks?: UserMask[];
   activeUserMaskId?: string | null;
+  initialMode?: StoryMode;
   onClose: () => void;
   onCreateStory: (save: StorySave) => void;
 }
@@ -51,10 +53,43 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
   presets,
   userMasks = [],
   activeUserMaskId,
+  initialMode,
   onClose,
   onCreateStory,
 }) => {
-  const [mode, setMode] = useState<'single' | 'multi'>('single');
+  const [mode, setMode] = useState<StoryMode>(initialMode || 'single');
+
+  useEffect(() => {
+    if (isOpen) {
+      const target = initialMode || 'single';
+      setMode(target);
+      if (target === 'novel') {
+        setTargetWordCount('long');
+        setStatsTrackingEnabled(false);
+        const novelPreset = presets.find((p) => p.id === 'preset-immersive-novel');
+        if (novelPreset) {
+          setSelectedPresetIds([novelPreset.id]);
+        }
+      } else {
+        setStatsTrackingEnabled(true);
+      }
+    }
+  }, [isOpen, initialMode, presets]);
+
+  const handleSelectMode = (newMode: StoryMode) => {
+    setMode(newMode);
+    if (newMode === 'novel') {
+      setTargetWordCount('long');
+      setStatsTrackingEnabled(false);
+      const novelPreset = presets.find((p) => p.id === 'preset-immersive-novel');
+      if (novelPreset) {
+        setSelectedPresetIds([novelPreset.id]);
+      }
+    } else {
+      setStatsTrackingEnabled(true);
+    }
+  };
+
   const [selectedCharacterId, setSelectedCharacterId] = useState<string>(characters[0]?.id || '');
   const [selectedMultiCharIds, setSelectedMultiCharIds] = useState<string[]>(
     characters.slice(0, 2).map((c) => c.id)
@@ -110,6 +145,90 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
   const [customStatInitial, setCustomStatInitial] = useState(50);
   const [customStatMin, setCustomStatMin] = useState(0);
   const [customStatMax, setCustomStatMax] = useState(100);
+
+  // AI Initial Stat Assignment State
+  const [isAiEvaluatingInitialStats, setIsAiEvaluatingInitialStats] = useState(false);
+  const [aiEvaluatedStatsMap, setAiEvaluatedStatsMap] = useState<Record<string, GameStatDefinition[]>>({});
+  const [aiInitialStatFeedback, setAiInitialStatFeedback] = useState<string | null>(null);
+
+  const handleAiInitStats = async () => {
+    const activeCharIds =
+      mode === 'single'
+        ? selectedCharacterId
+          ? [selectedCharacterId]
+          : []
+        : selectedMultiCharIds;
+    const selectedChars = characters.filter((c) => activeCharIds.includes(c.id));
+    if (selectedChars.length === 0) {
+      setAiInitialStatFeedback('请先在上方勾选至少一名登场角色');
+      return;
+    }
+
+    setIsAiEvaluatingInitialStats(true);
+    setAiInitialStatFeedback(null);
+    const settings = loadSettings();
+    const selectedWbs = worldbooks.filter((w) => selectedWorldBookIds.includes(w.id));
+
+    const res = await batchEvaluateCharacterStats({
+      characters: selectedChars,
+      worldbooks: selectedWbs,
+      roleMap: characterRoleMap,
+      contextMessages: [],
+      openingPremise: openingPremise.trim(),
+      storyTitle: title.trim(),
+      currentStats: stats,
+      provider: settings.provider,
+      model: settings.model,
+      customApiKey: settings.customApiKey,
+      customEndpoint: settings.customEndpoint,
+    });
+
+    setIsAiEvaluatingInitialStats(false);
+    if (!res.success || !res.data?.evaluations) {
+      setAiInitialStatFeedback(res.error || 'AI 赋初值失败，请检查设置');
+      return;
+    }
+
+    const newMap: Record<string, GameStatDefinition[]> = {};
+    res.data.evaluations.forEach((evalItem) => {
+      const charStats: GameStatDefinition[] = [];
+      evalItem.evaluatedStats.forEach((st) => {
+        const base = stats.find((s) => s.name === st.name);
+        charStats.push({
+          id: base?.id || `stat-${st.name}-${Date.now()}`,
+          name: st.name,
+          initialValue: st.suggestedValue,
+          currentValue: st.suggestedValue,
+          minValue: st.minValue ?? base?.minValue ?? 0,
+          maxValue: st.maxValue ?? base?.maxValue ?? 100,
+          unit: st.unit || base?.unit || '点',
+          color: (st.color as any) || base?.color || 'sky',
+          enabled: true,
+          target: 'character',
+          lastDelta: 0,
+        });
+      });
+      (evalItem.suggestedNewStats || []).forEach((ns) => {
+        charStats.push({
+          id: `stat-${ns.name}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          name: ns.name,
+          initialValue: ns.suggestedValue,
+          currentValue: ns.suggestedValue,
+          minValue: ns.minValue ?? 0,
+          maxValue: ns.maxValue ?? 100,
+          unit: ns.unit || '点',
+          color: (ns.color as any) || 'violet',
+          enabled: true,
+          target: 'character',
+          lastDelta: 0,
+        });
+      });
+      newMap[evalItem.characterId] = charStats;
+    });
+
+    setAiEvaluatedStatsMap(newMap);
+    setAiInitialStatFeedback(`已成功依据角色卡，为 ${selectedChars.length} 位角色定制专属初始数值！`);
+  };
 
   if (!isOpen) return null;
 
@@ -324,7 +443,13 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
 
     const effectiveTitle =
       title.trim() ||
-      `${mode === 'single' ? characters.find((c) => c.id === charIds[0])?.name || '未知' : '群像'}之行·${new Date().toLocaleDateString('zh-CN')}`;
+      `${
+        mode === 'single'
+          ? characters.find((c) => c.id === charIds[0])?.name || '未知'
+          : mode === 'novel'
+          ? '长篇小说'
+          : '群像'
+      }之行·${new Date().toLocaleDateString('zh-CN')}`;
 
     const effectivePremise =
       openingPremise.trim() ||
@@ -334,14 +459,28 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
     charIds.forEach((cId) => {
       const charObj = characters.find((c) => c.id === cId);
       const charName = charObj?.name || '角色';
-      stats.forEach((s) => {
-        finalStats.push({
-          ...s,
-          id: `${s.id}-${cId}`,
-          characterId: cId,
-          characterName: charName,
+      const evaluatedForChar = aiEvaluatedStatsMap[cId];
+      if (evaluatedForChar && evaluatedForChar.length > 0) {
+        evaluatedForChar.forEach((s) => {
+          finalStats.push({
+            ...s,
+            id: `${s.id}-${cId}`,
+            characterId: cId,
+            characterName: charName,
+            enabled: statsTrackingEnabled ? s.enabled : false,
+          });
         });
-      });
+      } else {
+        stats.forEach((s) => {
+          finalStats.push({
+            ...s,
+            id: `${s.id}-${cId}`,
+            characterId: cId,
+            characterName: charName,
+            enabled: statsTrackingEnabled ? s.enabled : false,
+          });
+        });
+      }
     });
 
     const newSave: StorySave = {
@@ -350,10 +489,15 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
       summary: effectivePremise.slice(0, 120),
       mode,
       characterIds: charIds,
-      characterRoleMap: mode === 'multi' ? characterRoleMap : undefined,
+      characterRoleMap: mode !== 'single' ? characterRoleMap : undefined,
       worldBookId: selectedWorldBookIds[0] || undefined,
       worldBookIds: selectedWorldBookIds,
-      presetId: selectedPresetIds[0] || presets[0]?.id || 'preset-default',
+      presetId:
+        selectedPresetIds[0] ||
+        (mode === 'novel'
+          ? presets.find((p) => p.id === 'preset-immersive-novel')?.id || presets[0]?.id
+          : presets[0]?.id) ||
+        'preset-default',
       presetIds:
         selectedPresetIds.length > 0
           ? selectedPresetIds
@@ -366,7 +510,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
       config: {
         innerVoiceEnabled,
         branchChoicesEnabled,
-        statsTrackingEnabled,
+        statsTrackingEnabled: Boolean(statsTrackingEnabled),
         corruptionConstraintEnabled,
         userMaskEnabled,
         targetWordCount,
@@ -379,7 +523,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
         writingGuidance: writingGuidance.trim(),
       },
       userMaskId: userMaskEnabled ? selectedUserMaskId || undefined : undefined,
-      disabledCharacterStatIds: [],
+      disabledCharacterStatIds: !statsTrackingEnabled ? [...charIds] : [],
       recalcPendingCharacterIds: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -395,7 +539,14 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-slate-800">新建文游开档</span>
+            <span className="text-sm font-semibold text-slate-800">
+              {mode === 'novel' ? '新建小说模式开档' : mode === 'multi' ? '新建群像文游开档' : '新建文游开档'}
+            </span>
+            {mode === 'novel' && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">
+                新模式 · 沉浸长篇
+              </span>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -409,37 +560,71 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
         <form onSubmit={handleSubmit} className="overflow-y-auto p-5 space-y-4 text-xs">
           {/* Mode Selector */}
           <div>
-            <label className="block font-medium text-slate-700 mb-1.5">开档模式</label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block font-medium text-slate-700">开档模式</label>
+              {mode === 'novel' && (
+                <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full font-medium border border-indigo-100">
+                  长篇小说连载 · 章节起伏与文学质感
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => setMode('single')}
-                className={`p-3 rounded-xl border flex items-center gap-2.5 transition-all text-left cursor-pointer ${
+                onClick={() => handleSelectMode('single')}
+                className={`p-2.5 sm:p-3 rounded-xl border flex items-center gap-2.5 transition-all text-left cursor-pointer ${
                   mode === 'single'
-                    ? 'border-sky-400 bg-sky-50/50 text-sky-700'
-                    : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                    ? 'border-sky-400 bg-sky-50/60 text-sky-800 ring-1 ring-sky-300'
+                    : 'border-slate-200 hover:border-slate-300 bg-white text-slate-600'
                 }`}
               >
-                <User className="w-4 h-4 text-sky-500" />
-                <div>
-                  <div className="font-semibold text-xs">单人专属角色档</div>
-                  <div className="text-[10px] text-slate-400">聚焦与单个角色的深度互动</div>
+                <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+                  <User className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-semibold text-xs text-slate-800">单人专属角色档</div>
+                  <div className="text-[10px] text-slate-400 truncate">单角色深度沉浸互动</div>
                 </div>
               </button>
 
               <button
                 type="button"
-                onClick={() => setMode('multi')}
-                className={`p-3 rounded-xl border flex items-center gap-2.5 transition-all text-left cursor-pointer ${
+                onClick={() => handleSelectMode('multi')}
+                className={`p-2.5 sm:p-3 rounded-xl border flex items-center gap-2.5 transition-all text-left cursor-pointer ${
                   mode === 'multi'
-                    ? 'border-sky-400 bg-sky-50/50 text-sky-700'
-                    : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                    ? 'border-sky-400 bg-sky-50/60 text-sky-800 ring-1 ring-sky-300'
+                    : 'border-slate-200 hover:border-slate-300 bg-white text-slate-600'
                 }`}
               >
-                <Users className="w-4 h-4 text-sky-500" />
-                <div>
-                  <div className="font-semibold text-xs">多人世界群像档</div>
-                  <div className="text-[10px] text-slate-400">多角色同台交互与剧情交织</div>
+                <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-semibold text-xs text-slate-800">多人世界群像档</div>
+                  <div className="text-[10px] text-slate-400 truncate">多角色同台交互剧情</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectMode('novel')}
+                className={`p-2.5 sm:p-3 rounded-xl border flex items-center gap-2.5 transition-all text-left cursor-pointer ${
+                  mode === 'novel'
+                    ? 'border-indigo-400 bg-gradient-to-br from-indigo-50/90 to-purple-50/40 text-indigo-900 ring-1 ring-indigo-300'
+                    : 'border-slate-200 hover:border-indigo-200 bg-white text-slate-600'
+                }`}
+              >
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                  <BookOpen className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-semibold text-xs text-slate-800 flex items-center gap-1">
+                    <span>新建小说模式</span>
+                    <span className="text-[9px] px-1 py-0.2 rounded-full bg-indigo-100 text-indigo-700 font-medium shrink-0">
+                      新模式
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-indigo-500/80 truncate">沉浸连载·长篇推演</div>
                 </div>
               </button>
             </div>
@@ -449,9 +634,13 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="block font-medium text-slate-700 text-xs">
-                {mode === 'single' ? '选择互动角色' : '选择入局角色（可多选）'}
+                {mode === 'single'
+                  ? '选择互动角色'
+                  : mode === 'novel'
+                  ? '选择登场角色（主角 / 配角 / 群演）'
+                  : '选择入局角色（可多选）'}
               </label>
-              {mode === 'multi' && (
+              {mode !== 'single' && (
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-semibold text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-full border border-sky-100">
                     已选 {selectedMultiCharIds.length} 人
@@ -476,7 +665,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
             </div>
 
             {/* Role Tabs (按主角/配角/群演按钮往下选角色卡) */}
-            {mode === 'multi' && (
+            {mode !== 'single' && (
               <div className="space-y-1">
                 <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-[11px]">
                   {[
@@ -527,9 +716,18 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                 </div>
                 <div className="text-[10px] text-slate-400 px-1 flex items-center justify-between">
                   <span>
-                    {roleFilter === 'protagonist' && '👉 当前选择【主角】：点击下方角色卡将其选为主角（戏份核心聚焦）'}
-                    {roleFilter === 'supporting' && '👉 当前选择【配角】：点击下方角色卡将其选为配角（推动剧情与冲突）'}
-                    {roleFilter === 'extra' && '👉 当前选择【群演】：点击下方角色卡将其选为群演（场景氛围烘托）'}
+                    {roleFilter === 'protagonist' &&
+                      (mode === 'novel'
+                        ? '👉 当前选择【小说主角】：核心叙事视点与高光聚焦，承载主线'
+                        : '👉 当前选择【主角】：点击下方角色卡将其选为主角（戏份核心聚焦）')}
+                    {roleFilter === 'supporting' &&
+                      (mode === 'novel'
+                        ? '👉 当前选择【关键配角】：重要剧情推演与因果转折，推动情节发展'
+                        : '👉 当前选择【配角】：点击下方角色卡将其选为配角（推动剧情与冲突）')}
+                    {roleFilter === 'extra' &&
+                      (mode === 'novel'
+                        ? '👉 当前选择【场景群演】：时代背景与市井氛围描摹，点到即止'
+                        : '👉 当前选择【群演】：点击下方角色卡将其选为群演（场景氛围烘托）')}
                     {roleFilter === 'all' && '👉 全部角色概览：点击角色卡可切换选入/移出'}
                   </span>
                 </div>
@@ -939,11 +1137,14 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
           <div className="pt-2 border-t border-slate-100">
             <label className="block font-medium text-slate-700 mb-2">开局功能设置</label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <label
-                className={`p-2.5 rounded-xl border flex flex-col justify-between cursor-pointer transition-all ${
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setInnerVoiceEnabled(!innerVoiceEnabled)}
+                className={`p-2.5 rounded-xl border flex flex-col justify-between cursor-pointer transition-all select-none ${
                   innerVoiceEnabled
                     ? 'border-sky-300 bg-sky-50/50 text-sky-800'
-                    : 'border-slate-200 text-slate-500'
+                    : 'border-slate-200 text-slate-500 hover:border-slate-300'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
@@ -952,17 +1153,21 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                     type="checkbox"
                     checked={innerVoiceEnabled}
                     onChange={(e) => setInnerVoiceEnabled(e.target.checked)}
-                    className="accent-sky-500 w-3.5 h-3.5"
+                    onClick={(e) => e.stopPropagation()}
+                    className="accent-sky-500 w-3.5 h-3.5 cursor-pointer"
                   />
                 </div>
                 <span className="text-[10px] text-slate-400">呈现隐秘心理</span>
-              </label>
+              </div>
 
-              <label
-                className={`p-2.5 rounded-xl border flex flex-col justify-between cursor-pointer transition-all ${
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setBranchChoicesEnabled(!branchChoicesEnabled)}
+                className={`p-2.5 rounded-xl border flex flex-col justify-between cursor-pointer transition-all select-none ${
                   branchChoicesEnabled
                     ? 'border-sky-300 bg-sky-50/50 text-sky-800'
-                    : 'border-slate-200 text-slate-500'
+                    : 'border-slate-200 text-slate-500 hover:border-slate-300'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
@@ -971,36 +1176,53 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                     type="checkbox"
                     checked={branchChoicesEnabled}
                     onChange={(e) => setBranchChoicesEnabled(e.target.checked)}
-                    className="accent-sky-500 w-3.5 h-3.5"
+                    onClick={(e) => e.stopPropagation()}
+                    className="accent-sky-500 w-3.5 h-3.5 cursor-pointer"
                   />
                 </div>
                 <span className="text-[10px] text-slate-400">提供行动选项</span>
-              </label>
+              </div>
 
-              <label
-                className={`p-2.5 rounded-xl border flex flex-col justify-between cursor-pointer transition-all ${
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setStatsTrackingEnabled(!statsTrackingEnabled)}
+                className={`p-2.5 rounded-xl border flex flex-col justify-between cursor-pointer transition-all select-none ${
                   statsTrackingEnabled
                     ? 'border-sky-300 bg-sky-50/50 text-sky-800'
-                    : 'border-slate-200 text-slate-500'
+                    : 'border-slate-200 text-slate-500 hover:border-slate-300'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-semibold text-xs">数值追踪</span>
+                  <span className="font-semibold text-xs flex items-center gap-1">
+                    <span>数值追踪</span>
+                    {mode === 'novel' && (
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-50 text-indigo-600 font-normal">
+                        小说默认关
+                      </span>
+                    )}
+                  </span>
                   <input
                     type="checkbox"
                     checked={statsTrackingEnabled}
                     onChange={(e) => setStatsTrackingEnabled(e.target.checked)}
-                    className="accent-sky-500 w-3.5 h-3.5"
+                    onClick={(e) => e.stopPropagation()}
+                    className="accent-sky-500 w-3.5 h-3.5 cursor-pointer"
                   />
                 </div>
-                <span className="text-[10px] text-slate-400">好感与状态跟踪</span>
-              </label>
+                <span className="text-[10px] text-slate-400">
+                  {statsTrackingEnabled ? '好感与状态跟踪' : '已关闭（纯文学沉浸）'}
+                </span>
+              </div>
 
-              <label
-                className={`p-2.5 rounded-xl border flex flex-col justify-between cursor-pointer transition-all ${
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setCorruptionConstraintEnabled(!corruptionConstraintEnabled)}
+                className={`p-2.5 rounded-xl border flex flex-col justify-between cursor-pointer transition-all select-none ${
                   corruptionConstraintEnabled
                     ? 'border-sky-300 bg-sky-50/50 text-sky-800'
-                    : 'border-slate-200 text-slate-500'
+                    : 'border-slate-200 text-slate-500 hover:border-slate-300'
                 }`}
                 title="开启：纯良正面人设黑化值锁定为0；关闭：所有角色黑化值随剧情正常增减"
               >
@@ -1010,30 +1232,55 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                     type="checkbox"
                     checked={corruptionConstraintEnabled}
                     onChange={(e) => setCorruptionConstraintEnabled(e.target.checked)}
-                    className="accent-sky-500 w-3.5 h-3.5"
+                    onClick={(e) => e.stopPropagation()}
+                    className="accent-sky-500 w-3.5 h-3.5 cursor-pointer"
                   />
                 </div>
                 <span className="text-[10px] text-slate-400">
                   {corruptionConstraintEnabled ? '纯良人设锁0' : '随剧情正常增减'}
                 </span>
-              </label>
+              </div>
             </div>
           </div>
 
           {/* Stats Config Panel (if stats tracking enabled) */}
           {statsTrackingEnabled && (
             <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/70 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-slate-700">数值配置与初始值</span>
-                <button
-                  type="button"
-                  onClick={() => setShowAddCustomStat(!showAddCustomStat)}
-                  className="text-sky-600 hover:text-sky-700 text-[11px] flex items-center gap-0.5"
-                >
-                  <Plus className="w-3 h-3" />
-                  添加自定义属性
-                </button>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="font-semibold text-slate-700 text-xs sm:text-sm">数值配置与初始值</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAiInitStats}
+                    disabled={isAiEvaluatingInitialStats}
+                    className="text-violet-700 hover:text-violet-800 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+                    title="依据所选角色的角色卡背景与世界书，由AI定制各角色专属初始数值"
+                  >
+                    {isAiEvaluatingInitialStats ? (
+                      <Loader2 className="w-3 h-3 animate-spin text-violet-600" />
+                    ) : (
+                      <Sparkles className="w-3 h-3 text-violet-600" />
+                    )}
+                    <span>{isAiEvaluatingInitialStats ? 'AI评估中...' : 'AI智能赋初值'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCustomStat(!showAddCustomStat)}
+                    className="text-sky-600 hover:text-sky-700 text-[11px] flex items-center gap-0.5 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    添加属性
+                  </button>
+                </div>
               </div>
+
+              {aiInitialStatFeedback && (
+                <div className="p-2 bg-violet-50 border border-violet-200 text-violet-800 text-[11px] rounded-lg flex items-center gap-1.5">
+                  <Sparkles className="w-3 h-3 text-violet-600 shrink-0" />
+                  <span>{aiInitialStatFeedback}</span>
+                </div>
+              )}
 
               {/* Add custom stat box */}
               {showAddCustomStat && (
