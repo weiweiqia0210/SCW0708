@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Sliders,
   Key,
@@ -12,6 +12,7 @@ import {
   Zap,
   RefreshCw,
   List,
+  XCircle,
 } from 'lucide-react';
 import { AppSettings, AIProvider } from '../types';
 import { checkBackendStatus, testConnection, fetchModels } from '../utils/aiService';
@@ -25,8 +26,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdateSe
   const [formData, setFormData] = useState<AppSettings>(settings);
   const [showKey, setShowKey] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [testSeconds, setTestSeconds] = useState(0);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [envStatus, setEnvStatus] = useState<{ hasEnvGeminiKey: boolean; defaultModel: string } | null>(null);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const timerIntervalRef = useRef<any>(null);
 
   // Model fetching states
   const [isFetchingModels, setIsFetchingModels] = useState(false);
@@ -37,6 +42,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdateSe
   useEffect(() => {
     setFormData(settings);
   }, [settings]);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
+  }, []);
 
   // Check server or client mode status
   useEffect(() => {
@@ -50,7 +63,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdateSe
       .catch((err) => console.warn('Env status check error:', err));
   }, []);
 
+  const handleCancelTest = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort('user_cancel');
+      abortControllerRef.current = null;
+    }
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    setIsTesting(false);
+    setTestSeconds(0);
+    setTestResult({
+      success: false,
+      message: '已手动中断测试，您可以切换模型或重新测试。',
+    });
+  };
+
   const handleChange = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    // If user changes model or service settings while testing, abort ongoing test immediately
+    if (isTesting && ['provider', 'model', 'customApiKey', 'customEndpoint'].includes(key as string)) {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort('user_switch');
+        abortControllerRef.current = null;
+      }
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      setIsTesting(false);
+      setTestSeconds(0);
+      setTestResult(null);
+    }
+
     const updated = { ...formData, [key]: value };
     setFormData(updated);
     onUpdateSettings(updated);
@@ -85,8 +130,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdateSe
   };
 
   const handleTestConnection = async () => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsTesting(true);
     setTestResult(null);
+    setTestSeconds(0);
+
+    let seconds = 0;
+    timerIntervalRef.current = setInterval(() => {
+      seconds += 1;
+      setTestSeconds(seconds);
+      if (seconds >= 15) {
+        if (timerIntervalRef.current) {
+          clearInterval(timerIntervalRef.current);
+          timerIntervalRef.current = null;
+        }
+        controller.abort('timeout');
+      }
+    }, 1000);
 
     try {
       const data = await testConnection({
@@ -94,7 +163,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdateSe
         customApiKey: formData.customApiKey,
         customEndpoint: formData.customEndpoint,
         model: formData.model,
+        signal: controller.signal,
       });
+
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
 
       if (data.success) {
         setTestResult({
@@ -108,12 +183,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdateSe
         });
       }
     } catch (e: any) {
-      setTestResult({
-        success: false,
-        message: `网络异常: ${e.message}`,
-      });
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+
+      if (e?.name === 'AbortError' || seconds >= 15) {
+        setTestResult({
+          success: false,
+          message: '连接超时：已等待超过 15 秒未响应。上游 API 响应迟缓或网络受阻，请检查网络、接口地址，或切换其他轻量模型后重试。',
+        });
+      } else {
+        setTestResult({
+          success: false,
+          message: `网络异常: ${e.message}`,
+        });
+      }
     } finally {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
       setIsTesting(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -344,19 +436,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdateSe
         <div className="pt-2">
           <button
             type="button"
-            disabled={isTesting}
-            onClick={handleTestConnection}
-            className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.99] disabled:opacity-50 text-white font-medium flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
+            onClick={isTesting ? handleCancelTest : handleTestConnection}
+            className={`w-full py-2.5 rounded-xl font-medium flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs active:scale-[0.99] ${
+              isTesting
+                ? 'bg-rose-50 hover:bg-rose-100/90 text-rose-700 border border-rose-300 ring-2 ring-rose-200/60'
+                : 'bg-slate-900 hover:bg-slate-800 text-white'
+            }`}
+            title={isTesting ? '点击可立即中止本次测试并切换模型' : '测试当前服务商与模型连接（15秒超时保护）'}
           >
             {isTesting ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin text-sky-400" />
-                正在测试连接上游 API...
+                <Loader2 className="w-4 h-4 animate-spin text-rose-600 shrink-0" />
+                <span className="font-semibold">正在测试连接 ({testSeconds}s / 15s) · 点击取消重测</span>
               </>
             ) : (
               <>
                 <Zap className="w-4 h-4 text-sky-400" />
-                测试服务连接
+                <span>测试服务连接</span>
+                <span className="text-[10px] text-slate-400 font-normal">（15秒超时保护）</span>
               </>
             )}
           </button>

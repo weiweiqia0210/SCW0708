@@ -337,23 +337,15 @@ export const AiStatEvaluationModal: React.FC<AiStatEvaluationModalProps> = ({
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fade-in">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/90 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden my-auto">
         {/* Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-violet-50/80 via-white to-sky-50/80 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-violet-600 to-indigo-500 text-white flex items-center justify-center shadow-md shadow-violet-200 shrink-0">
-              <Sparkles className="w-5 h-5 animate-pulse" />
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-violet-50/60 via-white to-sky-50/60 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-violet-600 text-white flex items-center justify-center shadow-xs shrink-0">
+              <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-slate-800 text-base sm:text-lg">
-                  AI 智能属性赋值
-                </h3>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
-                  告别机械默认值
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                结合剧情上下文、角色卡与世界书深度评估，出场角色按剧情推演，未出场角色按人设赋予专属初值
-              </p>
+              <h3 className="font-bold text-slate-800 text-base">
+                AI 智能属性赋值
+              </h3>
             </div>
           </div>
           <button
@@ -446,41 +438,31 @@ export const AiStatEvaluationModal: React.FC<AiStatEvaluationModalProps> = ({
           )}
 
           {isLoading ? (
-            <div className="py-16 text-center space-y-3">
-              <div className="w-12 h-12 rounded-full border-3 border-violet-600 border-t-transparent animate-spin mx-auto" />
-              <div className="space-y-1">
-                <p className="text-sm font-bold text-slate-800">
-                  AI 正在综合评估【{activeChar?.name || '角色'}】的属性数值...
-                </p>
-                <p className="text-xs text-slate-400">
-                  正在细致阅读角色卡、世界书与最新剧情上下文，推演真实身心状况与数值
-                </p>
-              </div>
+            <div className="py-16 text-center space-y-2">
+              <div className="w-8 h-8 rounded-full border-2 border-violet-600 border-t-transparent animate-spin mx-auto" />
+              <p className="text-xs text-slate-500 font-medium">
+                正在评估【{activeChar?.name || '角色'}】属性数值...
+              </p>
             </div>
           ) : !currentEval ? (
-            <div className="py-12 text-center space-y-3 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
-              <Sparkles className="w-8 h-8 text-violet-400 mx-auto" />
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-700">尚未为此角色生成智能评估</p>
-                <p className="text-xs text-slate-400">
-                  点击下方按钮，由 AI 结合角色卡与当前剧情生成合理数值
-                </p>
-              </div>
+            <div className="py-12 text-center space-y-2.5 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+              <Sparkles className="w-6 h-6 text-violet-400 mx-auto" />
+              <p className="text-xs text-slate-500">尚未生成评估</p>
               {activeChar && (
                 <button
                   type="button"
                   onClick={() => handleRunSingleEvaluation(activeChar)}
-                  className="px-4 py-2 bg-violet-600 text-white rounded-xl text-xs font-bold hover:bg-violet-700 shadow-sm cursor-pointer transition-all inline-flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 bg-violet-600 text-white rounded-xl text-xs font-semibold hover:bg-violet-700 shadow-xs cursor-pointer transition-all inline-flex items-center gap-1.5"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>立即评估【{activeChar.name}】</span>
+                  <span>立即评估</span>
                 </button>
               )}
             </div>
           ) : (
             <>
               {/* Appearance Status Banner */}
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2.5">
                   <div className="w-9 h-9 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-sm shrink-0 overflow-hidden border border-sky-200">
                     {activeChar?.avatarImage ? (
@@ -503,45 +485,41 @@ export const AiStatEvaluationModal: React.FC<AiStatEvaluationModalProps> = ({
                             : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
                         }`}
                       >
-                        {currentEval.hasAppeared ? '🟢 正式登场状态' : '⚪ 尚未在剧情中出场'}
+                        {currentEval.hasAppeared ? '🟢 正式登场' : '⚪ 未出场'}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      {currentEval.appearanceStatusText ||
-                        (currentEval.hasAppeared
-                          ? '已结合故事正文推演其实时身体与心理状态'
-                          : '已结合角色卡人设与世界书规则赋予专属初始基准值')}
-                    </p>
                   </div>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => activeChar && handleRunSingleEvaluation(activeChar)}
-                  className="text-xs text-violet-600 hover:text-violet-700 font-semibold flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-violet-50 transition-colors cursor-pointer shrink-0 self-end sm:self-center"
+                  className="text-xs text-violet-600 hover:text-violet-700 font-semibold flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-violet-50 transition-colors cursor-pointer shrink-0"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  <span>重新评估</span>
+                  <span>重估</span>
                 </button>
               </div>
 
               {/* Rationale Callout */}
-              <div className="p-3.5 rounded-xl bg-gradient-to-r from-violet-50/70 via-indigo-50/50 to-purple-50/70 border border-violet-200/80 space-y-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-violet-900">
-                  <Sparkles className="w-3.5 h-3.5 text-violet-600" />
-                  <span>AI 赋值文学依据与状态剖析：</span>
+              {currentEval.rationale && (
+                <div className="p-3 rounded-xl bg-violet-50/60 border border-violet-200/70 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-violet-900">
+                    <Sparkles className="w-3.5 h-3.5 text-violet-600" />
+                    <span>依据简述：</span>
+                  </div>
+                  <p className="text-xs text-violet-950 leading-relaxed font-normal whitespace-pre-wrap">
+                    {currentEval.rationale}
+                  </p>
                 </div>
-                <p className="text-xs text-violet-950 leading-relaxed font-normal whitespace-pre-wrap">
-                  {currentEval.rationale}
-                </p>
-              </div>
+              )}
 
               {/* Stat Evaluation List */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-slate-600 font-semibold px-1">
-                  <span>拟重估属性（可按需手动微调数值）：</span>
+                <div className="flex items-center justify-between text-xs text-slate-600 font-medium px-1">
+                  <span>属性数值</span>
                   <span className="text-[10px] text-slate-400 font-normal">
-                    原值 ➔ AI建议新值
+                    原值 ➔ 建议值
                   </span>
                 </div>
 

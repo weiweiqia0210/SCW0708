@@ -24,6 +24,7 @@ app.get('/api/env-status', (_req, res) => {
 });
 
 // Test connection
+// Test connection (with strict 15s timeout)
 app.post('/api/test-connection', async (req, res) => {
   try {
     const { provider = 'gemini', customApiKey, customEndpoint, model = 'gemini-3.8-flash' } = req.body;
@@ -36,6 +37,10 @@ app.post('/api/test-connection', async (req, res) => {
       });
     }
 
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('TIMEOUT_15S')), 15000);
+    });
+
     if (provider === 'gemini') {
       const ai = new GoogleGenAI({
         apiKey,
@@ -46,43 +51,51 @@ app.post('/api/test-connection', async (req, res) => {
         },
       });
 
-      const response = await ai.models.generateContent({
-        model: model || 'gemini-3.8-flash',
-        contents: '请回复简短确认："文游连接测试成功。"',
-      });
+      const executeGemini = async () => {
+        const response = await ai.models.generateContent({
+          model: model || 'gemini-3.8-flash',
+          contents: '请回复简短确认："文游连接测试成功。"',
+        });
+        return response.text?.trim() || '连接成功';
+      };
+
+      const reply = await Promise.race([executeGemini(), timeoutPromise]);
 
       return res.json({
         success: true,
-        message: response.text?.trim() || '连接成功',
+        message: reply,
         model: model || 'gemini-3.8-flash',
       });
     } else if (provider === 'openai_compatible') {
       const endpoint = (customEndpoint || 'https://api.openai.com/v1').replace(/\/+$/, '');
-      const response = await fetch(`${endpoint}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: model || 'gpt-4o-mini',
-          messages: [{ role: 'user', content: 'Ping: Reply with "Connection Successful"' }],
-          max_tokens: 30,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        return res.status(response.status).json({
-          success: false,
-          error: `API 返回错误 (${response.status}): ${errorText.slice(0, 300)}`,
+      const executeOpenAI = async () => {
+        const response = await fetch(`${endpoint}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: model || 'gpt-4o-mini',
+            messages: [{ role: 'user', content: 'Ping: Reply with "Connection Successful"' }],
+            max_tokens: 30,
+          }),
         });
-      }
 
-      const data = await response.json();
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`API 返回错误 (${response.status}): ${errorText.slice(0, 300)}`);
+        }
+
+        const data = await response.json();
+        return data.choices?.[0]?.message?.content || '连接成功';
+      };
+
+      const reply = await Promise.race([executeOpenAI(), timeoutPromise]);
+
       return res.json({
         success: true,
-        message: data.choices?.[0]?.message?.content || '连接成功',
+        message: reply,
         model: model,
       });
     } else {
@@ -90,6 +103,12 @@ app.post('/api/test-connection', async (req, res) => {
     }
   } catch (error: any) {
     console.error('Test connection error:', error);
+    if (error?.message === 'TIMEOUT_15S' || error?.name === 'AbortError') {
+      return res.status(408).json({
+        success: false,
+        error: '测试超时：已等待超过 15 秒未响应。上游接口响应迟缓，请检查网络、接口地址或切换模型重试。',
+      });
+    }
     return res.status(500).json({
       success: false,
       error: error?.message || '测试连接失败，请检查网络或配置',

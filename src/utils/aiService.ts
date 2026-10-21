@@ -366,92 +366,161 @@ export async function testConnection(params: {
   model: string;
   customApiKey?: string;
   customEndpoint?: string;
+  signal?: AbortSignal;
 }): Promise<{ success: boolean; message: string; model?: string }> {
-  const { provider, model, customApiKey, customEndpoint } = params;
+  const { provider, model, customApiKey, customEndpoint, signal } = params;
 
-  // Try backend proxy if available
-  if (backendAvailable !== false) {
-    try {
-      const res = await fetch('/api/test-connection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
-      });
+  // Internal 15s timeout controller
+  const timeoutCtrl = new AbortController();
+  let timedOut = false;
+  const timeoutTimer = setTimeout(() => {
+    timedOut = true;
+    timeoutCtrl.abort('timeout');
+  }, 15000);
 
-      if (res.status !== 404) {
-        backendAvailable = true;
-        const data = await res.json();
-        return data;
-      }
-      backendAvailable = false;
-    } catch {
-      backendAvailable = false;
-    }
+  if (signal) {
+    signal.addEventListener('abort', () => timeoutCtrl.abort('user_abort'));
   }
 
-  // Client-side fallback
-  const apiKey = customApiKey?.trim();
-  if (!apiKey) {
-    return {
-      success: false,
-      message: '静态模式下必须输入 API Key 才能进行连接测试',
-    };
-  }
+  const effectiveSignal = timeoutCtrl.signal;
 
-  if (provider === 'gemini') {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-        model || 'gemini-3.8-flash'
-      )}:generateContent?key=${encodeURIComponent(apiKey)}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: '请回复简短确认："文游连接测试成功。"' }] }],
-        }),
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        return { success: false, message: `Gemini 响应失败 (${res.status}): ${errText.slice(0, 200)}` };
+  try {
+    // Try backend proxy if available
+    if (backendAvailable !== false) {
+      try {
+        const res = await fetch('/api/test-connection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params),
+          signal: effectiveSignal,
+        });
+
+        clearTimeout(timeoutTimer);
+
+        if (res.status === 408) {
+          return {
+            success: false,
+            message: '测试超时：已等待超过 15 秒未响应。上游接口响应迟缓，请检查网络或切换模型重试。',
+          };
+        }
+
+        if (res.status !== 404) {
+          backendAvailable = true;
+          const data = await res.json();
+          return {
+            success: Boolean(data.success),
+            message: data.message || data.error || (data.success ? '连接成功' : '测试失败'),
+            model: data.model || model,
+          };
+        }
+        backendAvailable = false;
+      } catch (err: any) {
+        if (err?.name === 'AbortError' || timedOut) {
+          clearTimeout(timeoutTimer);
+          if (timedOut) {
+            return {
+              success: false,
+              message: '测试超时：已等待超过 15 秒未收到上游 API 响应。请检查网络、接口地址或切换模型。',
+            };
+          }
+          return { success: false, message: '已取消本次连接测试。' };
+        }
+        backendAvailable = false;
       }
-      const data = await res.json();
-      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || '连接成功';
-      return { success: true, message: reply.trim(), model };
-    } catch (e: any) {
-      return { success: false, message: `连接异常: ${e.message}` };
     }
-  } else if (provider === 'openai_compatible') {
-    try {
-      const endpoint = (customEndpoint || 'https://api.openai.com/v1').replace(/\/+$/, '');
-      const url = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: 'Say hello in one short sentence.' }],
-          max_tokens: 20,
-        }),
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        return { success: false, message: `API 响应失败 (${res.status}): ${errText.slice(0, 200)}` };
-      }
-      const data = await res.json();
+
+    // Client-side fallback
+    const apiKey = customApiKey?.trim();
+    if (!apiKey) {
+      clearTimeout(timeoutTimer);
       return {
-        success: true,
-        message: data.choices?.[0]?.message?.content || '连接成功',
-        model,
+        success: false,
+        message: '静态模式下必须输入 API Key 才能进行连接测试',
       };
-    } catch (e: any) {
-      return { success: false, message: `连接异常: ${e.message}` };
     }
-  }
 
-  return { success: false, message: '未知服务商' };
+    if (provider === 'gemini') {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+          model || 'gemini-3.8-flash'
+        )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: '请回复简短确认："文游连接测试成功。"' }] }],
+          }),
+          signal: effectiveSignal,
+        });
+        clearTimeout(timeoutTimer);
+        if (!res.ok) {
+          const errText = await res.text();
+          return { success: false, message: `Gemini 响应失败 (${res.status}): ${errText.slice(0, 200)}` };
+        }
+        const data = await res.json();
+        const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || '连接成功';
+        return { success: true, message: reply.trim(), model };
+      } catch (e: any) {
+        clearTimeout(timeoutTimer);
+        if (e?.name === 'AbortError' || timedOut) {
+          if (timedOut) {
+            return {
+              success: false,
+              message: '测试超时：已等待超过 15 秒未收到上游 API 响应。请检查网络或切换模型。',
+            };
+          }
+          return { success: false, message: '已取消本次连接测试。' };
+        }
+        return { success: false, message: `连接异常: ${e.message}` };
+      }
+    } else if (provider === 'openai_compatible') {
+      try {
+        const endpoint = (customEndpoint || 'https://api.openai.com/v1').replace(/\/+$/, '');
+        const url = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: 'Say hello in one short sentence.' }],
+            max_tokens: 20,
+          }),
+          signal: effectiveSignal,
+        });
+        clearTimeout(timeoutTimer);
+        if (!res.ok) {
+          const errText = await res.text();
+          return { success: false, message: `API 响应失败 (${res.status}): ${errText.slice(0, 200)}` };
+        }
+        const data = await res.json();
+        return {
+          success: true,
+          message: data.choices?.[0]?.message?.content || '连接成功',
+          model,
+        };
+      } catch (e: any) {
+        clearTimeout(timeoutTimer);
+        if (e?.name === 'AbortError' || timedOut) {
+          if (timedOut) {
+            return {
+              success: false,
+              message: '测试超时：已等待超过 15 秒未收到上游 API 响应。请检查网络、接口地址或切换模型。',
+            };
+          }
+          return { success: false, message: '已取消本次连接测试。' };
+        }
+        return { success: false, message: `连接异常: ${e.message}` };
+      }
+    }
+
+    clearTimeout(timeoutTimer);
+    return { success: false, message: '未知服务商' };
+  } finally {
+    clearTimeout(timeoutTimer);
+  }
 }
 
 /**

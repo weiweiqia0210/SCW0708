@@ -1944,7 +1944,7 @@ ${revisionOriginalText}
                     ? '【导演模式】输入场景走向、剧情指示或环境事件指导...'
                     : '输入你的行动、台词或抉择（如：警惕地拔出腰间短刃，缓步靠近石棺...）'
                 }
-                className="w-full p-2.5 text-xs text-slate-800 placeholder:text-slate-400 bg-transparent resize-none focus:outline-none leading-relaxed"
+                className="w-full h-[100px] p-2.5 text-xs text-slate-800 placeholder:text-slate-400 bg-transparent resize-none focus:outline-none leading-relaxed"
               />
             </div>
 
@@ -2284,20 +2284,11 @@ ${revisionOriginalText}
                           {/* Expanded Attributes Panel */}
                           {isExpanded && (
                             <div className="p-3 border-t border-slate-100 space-y-2.5">
-                              {/* AI Smart Assignment Highlight Bar inside Attributes container */}
-                              <div className="p-2.5 rounded-xl bg-gradient-to-r from-violet-50/90 via-indigo-50/60 to-sky-50/90 border border-violet-200/90 flex items-center justify-between gap-2 shadow-2xs">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <div className="w-6 h-6 rounded-lg bg-violet-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
-                                    <Sparkles className="w-3.5 h-3.5" />
-                                  </div>
-                                  <div className="min-w-0">
-                                    <div className="text-xs font-bold text-violet-900 truncate">
-                                      AI 智能数值赋值
-                                    </div>
-                                    <div className="text-[10px] text-violet-700/80 truncate">
-                                      已出场按正文剧情推演，未出场按角色卡赋予初值
-                                    </div>
-                                  </div>
+                              {/* AI Smart Assignment Row */}
+                              <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-violet-50/60 border border-violet-200/70">
+                                <div className="flex items-center gap-1.5 text-xs font-semibold text-violet-900">
+                                  <Sparkles className="w-3.5 h-3.5 text-violet-600" />
+                                  <span>AI 智能赋值</span>
                                 </div>
                                 <button
                                   type="button"
@@ -2305,10 +2296,9 @@ ${revisionOriginalText}
                                     setAiStatTargetCharacter(char);
                                     setIsAiStatModalOpen(true);
                                   }}
-                                  className="px-2.5 py-1 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-bold text-[11px] rounded-lg shadow-2xs transition-all active:scale-95 cursor-pointer shrink-0 flex items-center gap-1"
+                                  className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white font-medium text-xs rounded-lg shadow-2xs transition-all active:scale-95 cursor-pointer shrink-0"
                                 >
-                                  <Sparkles className="w-3 h-3" />
-                                  <span>智能评估赋值</span>
+                                  智能重估
                                 </button>
                               </div>
                               {isCharDisabled ? (
