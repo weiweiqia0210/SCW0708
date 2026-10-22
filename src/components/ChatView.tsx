@@ -30,6 +30,7 @@ import {
   Trash2,
   SlidersHorizontal,
   BookOpen,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   StorySave,
@@ -246,6 +247,48 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [streamingContent, setStreamingContent] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Stream timer & 15-second response timeout notification
+  const [streamElapsedSeconds, setStreamElapsedSeconds] = useState(0);
+  const [hasReceivedFirstChunk, setHasReceivedFirstChunk] = useState(false);
+  const lastStreamInvocationRef = useRef<{
+    activeSaveState: StorySave;
+    conversationHistory: ChatMessage[];
+    regenerateAtMsgIndex?: number;
+    additionalGuidance?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    if (isStreaming) {
+      setStreamElapsedSeconds(0);
+      setHasReceivedFirstChunk(false);
+      timer = setInterval(() => {
+        setStreamElapsedSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setStreamElapsedSeconds(0);
+      setHasReceivedFirstChunk(false);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isStreaming]);
+
+  const handleQuickRetry = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setIsStreaming(false);
+    setErrorMessage(null);
+    if (lastStreamInvocationRef.current) {
+      const { activeSaveState, conversationHistory, regenerateAtMsgIndex, additionalGuidance } =
+        lastStreamInvocationRef.current;
+      setTimeout(() => {
+        executeAIStream(activeSaveState, conversationHistory, regenerateAtMsgIndex, additionalGuidance);
+      }, 60);
+    }
+  };
 
   // Drawer / Side Panel
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -948,6 +991,13 @@ ${revisionOriginalText}
     regenerateAtMsgIndex?: number,
     additionalGuidance?: string
   ) => {
+    lastStreamInvocationRef.current = {
+      activeSaveState,
+      conversationHistory,
+      regenerateAtMsgIndex,
+      additionalGuidance,
+    };
+
     setIsStreaming(true);
     setStreamingContent('');
 
@@ -1006,6 +1056,7 @@ ${revisionOriginalText}
         messages: apiMessages,
         signal: abortController.signal,
         onChunk: (textChunk) => {
+          setHasReceivedFirstChunk(true);
           accumulatedRaw += textChunk;
           const currentParsed = parseAIResponseTags(accumulatedRaw);
           setStreamingContent(currentParsed.cleanText);
@@ -1271,36 +1322,30 @@ ${revisionOriginalText}
   };
 
   return (
-    <div className="relative flex flex-col h-screen h-[100dvh] max-w-2xl mx-auto bg-slate-50 overflow-hidden">
+    <div className="relative flex flex-col h-screen h-[100dvh] max-w-4xl mx-auto bg-[#111113] text-[#E0E0E0] overflow-hidden border-x border-[#E2B874]/15 shadow-2xl">
       {/* Top Header */}
-      <header className="sticky top-0 z-30 px-3.5 py-2.5 bg-white/90 backdrop-blur-md border-b border-sky-100 flex items-center justify-between shadow-xs">
+      <header className="sticky top-0 z-30 px-3.5 sm:px-4 py-2.5 sm:py-3 bg-[#141417]/95 backdrop-blur-md border-b border-[#E2B874]/20 flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-2.5 min-w-0">
           <button
             onClick={onBack}
-            className="p-1.5 -ml-1 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
+            className="p-1.5 -ml-1 rounded-xl text-[#A3A3A3] hover:text-[#E2B874] hover:bg-[#E2B874]/10 transition-colors cursor-pointer"
             title="返回书架"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
 
           <div className="min-w-0">
-            <h1 className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+            <h1 className="text-xs sm:text-sm font-bold text-[#E2B874] truncate font-serif tracking-wider drop-shadow-[0_2px_10px_rgba(226,184,116,0.25)]">
               {currentSave.title}
             </h1>
-            <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+            <div className="flex items-center gap-1.5 text-[10px] text-[#A3A3A3] font-mono">
               <span
-                className={`px-1.5 py-0.2 rounded font-medium ${
-                  currentSave.mode === 'novel'
-                    ? 'bg-indigo-50 text-indigo-700 border border-indigo-100'
-                    : currentSave.mode === 'multi'
-                    ? 'bg-amber-50 text-amber-700 border border-amber-100'
-                    : 'bg-sky-50 text-sky-700 border border-sky-100'
-                }`}
+                className="px-1.5 py-0.2 rounded font-medium bg-[#E2B874]/10 text-[#E2B874] border border-[#E2B874]/25"
               >
                 {currentSave.mode === 'novel' ? '小说模式' : currentSave.mode === 'multi' ? '群像模式' : '单人模式'}
               </span>
               <span>·</span>
-              <span className="truncate">
+              <span className="truncate text-[#C0C0C0]">
                 {activeChars.map((c) => c.name).join('、') || '角色'}
               </span>
               <span>·</span>
@@ -1324,7 +1369,7 @@ ${revisionOriginalText}
               }
               setDrawerOpen(true);
             }}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100/80 text-sky-700 text-xs font-medium border border-sky-200/80 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#E2B874]/15 hover:bg-[#E2B874]/25 text-[#E2B874] text-xs font-serif font-medium border border-[#E2B874]/35 transition-all cursor-pointer shadow-xs"
           >
             <Sliders className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">
@@ -1343,13 +1388,13 @@ ${revisionOriginalText}
         {/* Story Opening Card */}
         <div
           data-chat-item="premise"
-          className="p-3.5 rounded-2xl bg-gradient-to-br from-white via-sky-50/30 to-blue-50/20 border border-sky-100/80 shadow-xs"
+          className="p-4 rounded-2xl bg-gradient-to-br from-[#1c1c20] via-[#161619] to-[#121214] border border-[#E2B874]/25 shadow-sm"
         >
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-sky-700 mb-1">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-[#E2B874] mb-1.5 tracking-wider font-serif">
             <Sparkles className="w-3.5 h-3.5" />
             故事开局背景
           </div>
-          <p className="text-xs text-slate-600 leading-relaxed font-novel">
+          <p className="text-xs sm:text-sm text-[#C8C8CC] leading-relaxed font-novel">
             {currentSave.openingPremise}
           </p>
         </div>
@@ -1402,7 +1447,7 @@ ${revisionOriginalText}
                           type="button"
                           disabled={isStreaming}
                           onClick={() => handleRerollFromUserMsg(index)}
-                          className="px-3 py-1 rounded-lg bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-medium shadow-xs shadow-sky-200 transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          className="px-3 py-1 rounded-lg bg-[#E2B874] hover:bg-[#edd098] active:scale-95 text-[#111113] font-semibold shadow-xs transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
                           title="保存修改并重新生成该轮后续剧情"
                         >
                           <RefreshCw className="w-3 h-3" />
@@ -1412,19 +1457,19 @@ ${revisionOriginalText}
                     </div>
                   ) : (
                     <div className="relative">
-                      <div className="px-4 py-2.5 rounded-2xl rounded-tr-xs bg-sky-600 text-white text-xs shadow-xs leading-relaxed">
+                      <div className="px-4 py-2.5 rounded-2xl rounded-tr-xs bg-[#25221b] border border-[#E2B874]/40 text-[#E2B874] text-xs shadow-xs leading-relaxed font-serif">
                         {msg.content}
                       </div>
 
                       {/* User action icons: separate edit and reroll */}
-                      <div className="flex items-center justify-end gap-2 mt-1 text-[11px] text-slate-400 opacity-90">
+                      <div className="flex items-center justify-end gap-2 mt-1 text-[11px] text-[#888] opacity-90">
                         <button
                           onClick={() => handleCopy(msg.id, msg.content)}
-                          className="hover:text-sky-600 transition-colors p-0.5 flex items-center gap-0.5 cursor-pointer"
+                          className="hover:text-[#E2B874] transition-colors p-0.5 flex items-center gap-0.5 cursor-pointer"
                           title="复制发言"
                         >
                           {copiedId === msg.id ? (
-                            <Check className="w-3 h-3 text-emerald-500" />
+                            <Check className="w-3 h-3 text-emerald-400" />
                           ) : (
                             <Copy className="w-3 h-3" />
                           )}
@@ -1435,7 +1480,7 @@ ${revisionOriginalText}
                             setEditingMsgIndex(index);
                             setEditingMsgText(msg.content);
                           }}
-                          className="hover:text-sky-600 transition-colors p-0.5 flex items-center gap-0.5 cursor-pointer"
+                          className="hover:text-[#E2B874] transition-colors p-0.5 flex items-center gap-0.5 cursor-pointer"
                           title="仅编辑修改当前发言"
                         >
                           <Edit2 className="w-3 h-3" />
@@ -1444,24 +1489,24 @@ ${revisionOriginalText}
                         <button
                           disabled={isStreaming}
                           onClick={() => handleRerollFromUserMsg(index)}
-                          className="hover:text-sky-600 transition-colors p-0.5 flex items-center gap-0.5 cursor-pointer disabled:opacity-50"
+                          className="hover:text-[#E2B874] transition-colors p-0.5 flex items-center gap-0.5 cursor-pointer disabled:opacity-50"
                           title="以该条发言重新生成后续剧情"
                         >
                           <RefreshCw className="w-3 h-3" />
                           <span>以此重roll</span>
                         </button>
                         {confirmDeleteMsgIndex === index ? (
-                          <span className="flex items-center gap-1 bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded border border-rose-200">
+                          <span className="flex items-center gap-1 bg-rose-950/80 text-rose-300 px-1.5 py-0.5 rounded border border-rose-800">
                             <span>删除此段?</span>
                             <button
                               onClick={() => handleDeleteMessage(index)}
-                              className="font-bold text-rose-700 hover:underline px-0.5 cursor-pointer"
+                              className="font-bold text-rose-400 hover:underline px-0.5 cursor-pointer"
                             >
                               确定
                             </button>
                             <button
                               onClick={() => setConfirmDeleteMsgIndex(null)}
-                              className="text-slate-500 hover:underline px-0.5 cursor-pointer"
+                              className="text-slate-400 hover:underline px-0.5 cursor-pointer"
                             >
                               取消
                             </button>
@@ -1469,7 +1514,7 @@ ${revisionOriginalText}
                         ) : (
                           <button
                             onClick={() => setConfirmDeleteMsgIndex(index)}
-                            className="hover:text-rose-600 transition-colors p-0.5 flex items-center gap-0.5 cursor-pointer text-slate-400"
+                            className="hover:text-rose-400 transition-colors p-0.5 flex items-center gap-0.5 cursor-pointer text-[#666]"
                             title="删除这段话"
                           >
                             <Trash2 className="w-3 h-3" />
@@ -1483,14 +1528,14 @@ ${revisionOriginalText}
               ) : (
                 /* Assistant Narrative Block */
                 <div className="w-full space-y-2">
-                  <div className="w-full p-4 rounded-2xl bg-white border border-sky-100/80 shadow-xs space-y-3">
+                  <div className="w-full p-4 sm:p-5 rounded-2xl bg-[#161619] border border-[#E2B874]/20 shadow-md space-y-3.5 text-[#E0E0E0] font-serif">
                     {/* Main Story Narrative Prose (with inline collapsible thoughts where they occur) */}
                     {editingMsgIndex === index ? (
                       <div className="space-y-2">
                         <textarea
                           value={editingMsgText}
                           onChange={(e) => setEditingMsgText(e.target.value)}
-                          className="w-full p-3 rounded-xl border border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 text-xs sm:text-sm text-slate-800 leading-relaxed bg-white"
+                          className="w-full p-3 rounded-xl border border-[#E2B874]/50 focus:outline-none focus:ring-1 focus:ring-[#E2B874] text-xs sm:text-sm text-[#E0E0E0] leading-relaxed bg-[#1b1b1f]"
                           rows={7}
                         />
                         <div className="flex items-center justify-end gap-2 text-xs">
@@ -1500,14 +1545,14 @@ ${revisionOriginalText}
                               setEditingMsgIndex(null);
                               setEditingMsgText('');
                             }}
-                            className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 font-medium transition-colors cursor-pointer"
+                            className="px-3 py-1 rounded-lg border border-[#333] hover:bg-[#25252a] text-[#A3A3A3] font-medium transition-colors cursor-pointer"
                           >
                             取消
                           </button>
                           <button
                             type="button"
                             onClick={() => handleSaveAiMsg(index)}
-                            className="px-3 py-1 rounded-lg bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-medium shadow-xs shadow-sky-200 transition-all flex items-center gap-1 cursor-pointer"
+                            className="px-3 py-1 rounded-lg bg-[#E2B874] hover:bg-[#edd098] active:scale-95 text-[#111113] font-semibold shadow-xs transition-all flex items-center gap-1 cursor-pointer"
                           >
                             <Check className="w-3 h-3" />
                             保存修改
@@ -1752,8 +1797,8 @@ ${revisionOriginalText}
                     msg.suggestedBranches.length > 0 &&
                     !isStreaming && (
                       <div className="space-y-1.5 pt-1">
-                        <div className="text-[11px] font-medium text-slate-400 px-1 flex items-center gap-1">
-                          <Compass className="w-3.5 h-3.5 text-sky-500" />
+                        <div className="text-[11px] font-medium text-[#E2B874]/80 px-1 flex items-center gap-1 font-serif">
+                          <Compass className="w-3.5 h-3.5 text-[#E2B874]" />
                           剧情行动选项（点击填入输入框，可多次点击追加后二次修改）：
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -1762,10 +1807,10 @@ ${revisionOriginalText}
                               key={cIdx}
                               type="button"
                               onClick={() => handleAppendOptionToInput(choice)}
-                              className="px-3 py-1.5 rounded-xl bg-white border border-sky-200 hover:border-sky-400 hover:bg-sky-50 text-slate-700 hover:text-sky-700 text-xs font-medium shadow-xs transition-all text-left active:scale-95 cursor-pointer flex items-center gap-1.5 group"
+                              className="px-3.5 py-1.5 rounded-xl bg-[#1a1a1e] border border-[#E2B874]/50 hover:border-[#E2B874] hover:bg-[#E2B874]/15 text-[#E2B874] text-xs font-serif font-medium shadow-xs transition-all text-left active:scale-95 cursor-pointer flex items-center gap-1.5 group"
                               title="点击将此选项追加填入下方输入框，方便您修改补充"
                             >
-                              <span className="text-sky-500 font-bold text-xs group-hover:scale-110 transition-transform">+</span>
+                              <span className="text-[#E2B874] font-bold text-xs group-hover:scale-110 transition-transform">+</span>
                               <span>{choice}</span>
                             </button>
                           ))}
@@ -1780,13 +1825,67 @@ ${revisionOriginalText}
 
         {/* Live Streaming Response Card */}
         {isStreaming && (
-          <div className="w-full p-4 rounded-2xl bg-white border border-sky-200 shadow-sm space-y-3 animate-in fade-in duration-150">
-            <div className="flex items-center gap-2 text-xs font-semibold text-sky-600">
-              <span className="w-2 h-2 rounded-full bg-sky-500 animate-ping" />
-              正在谱写剧情中...
+          <div className="w-full p-4 rounded-2xl bg-[#161619] border border-[#E2B874]/35 shadow-xl space-y-3 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 font-semibold text-[#E2B874]">
+                <span className="w-2 h-2 rounded-full bg-[#E2B874] animate-ping" />
+                <span>正在谱写剧情中...</span>
+              </div>
+              <span className="text-[11px] font-mono text-[#E2B874]/80 px-2 py-0.5 rounded bg-[#E2B874]/10 border border-[#E2B874]/25">
+                已耗时: {streamElapsedSeconds}s
+              </span>
             </div>
+
+            {/* 15s Response Timeout Warning Banner (超过15秒未响应直接提醒并提供重试/切换模型) */}
+            {streamElapsedSeconds >= 15 && (
+              <div className="p-3.5 rounded-xl bg-[#231d15] border border-[#E2B874]/60 text-[#E2B874] text-xs space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-200 shadow-md">
+                <div className="flex items-center justify-between font-semibold">
+                  <div className="flex items-center gap-1.5 text-[#E2B874]">
+                    <AlertTriangle className="w-4 h-4 text-[#E2B874] animate-pulse shrink-0" />
+                    <span>AI 响应已超过 15 秒未返回（已等待 {streamElapsedSeconds} 秒）</span>
+                  </div>
+                  <span className="text-[10px] text-[#E2B874]/70 font-mono tracking-wider">响应较慢提示</span>
+                </div>
+                <p className="text-[11px] text-[#E0E0E0]/85 leading-relaxed font-serif">
+                  当前模型可能遇到官方服务器拥堵或网络延迟。为方便您快速切换重新测试，您可以直接进行以下操作：
+                </p>
+                <div className="flex items-center gap-2 pt-1 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleQuickRetry}
+                    className="px-2.5 py-1.5 rounded-lg bg-[#E2B874] hover:bg-[#edd098] text-[#111113] font-semibold text-xs flex items-center gap-1 active:scale-95 transition-all cursor-pointer shadow-xs"
+                    title="立即重新发起本轮请求"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>立即重新请求</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveDrawerTab('settings');
+                      setDrawerOpen(true);
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg border border-[#E2B874]/60 hover:border-[#E2B874] text-[#E2B874] hover:bg-[#E2B874]/15 text-xs font-medium flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+                    title="打开侧边栏快速切换其他模型或自定义 API Key"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>切换模型/设置</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleStopGeneration}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-950/70 hover:bg-rose-900 border border-rose-800/80 text-rose-300 text-xs font-medium flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+                    title="立即终止本次生成"
+                  >
+                    <Square className="w-3.5 h-3.5" />
+                    <span>终止本次等待</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div
-              className={`text-slate-800 ${fontClass} ${fontSizeClass} ${lineSpacingClass} opacity-95`}
+              className={`text-[#E0E0E0] ${fontClass} ${fontSizeClass} ${lineSpacingClass} opacity-95 leading-relaxed`}
             >
               {renderFormattedProse(streamingContent || '正在构思剧情发展...')}
             </div>
@@ -1795,11 +1894,34 @@ ${revisionOriginalText}
 
         {/* Error notice */}
         {errorMessage && (
-          <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs space-y-1">
-            <div className="font-semibold flex items-center gap-1.5">
-              <span>⚠️ 生成遇到问题</span>
+          <div className="p-3.5 rounded-2xl bg-[#251717] border border-rose-800/70 text-rose-300 text-xs space-y-2 shadow-lg">
+            <div className="font-semibold flex items-center justify-between gap-1.5 text-rose-200">
+              <span className="flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>生成遇到问题</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleQuickRetry}
+                className="px-2 py-1 rounded-lg bg-rose-900/60 hover:bg-rose-800 text-rose-200 text-[11px] font-medium flex items-center gap-1 border border-rose-700/60 cursor-pointer transition-colors"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>点击重试</span>
+              </button>
             </div>
-            <div className="text-[11px] leading-relaxed">{errorMessage}</div>
+            <div className="text-[11px] leading-relaxed text-rose-300/90">{errorMessage}</div>
+            <div className="flex items-center gap-2 pt-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveDrawerTab('settings');
+                  setDrawerOpen(true);
+                }}
+                className="text-[11px] text-[#E2B874] underline hover:text-[#edd098] cursor-pointer"
+              >
+                前往设置更换模型或 API Key 重新测试 →
+              </button>
+            </div>
           </div>
         )}
 
@@ -1828,7 +1950,7 @@ ${revisionOriginalText}
         <button
           type="button"
           onClick={handleNavScrollToTop}
-          className="w-8 h-8 rounded-full bg-white/85 hover:bg-white text-slate-600 hover:text-sky-600 shadow-md backdrop-blur-md border border-slate-200/80 active:scale-90 transition-all flex items-center justify-center cursor-pointer"
+          className="w-8 h-8 rounded-full bg-[#1b1b1e]/90 hover:bg-[#25252b] text-[#E2B874] shadow-md backdrop-blur-md border border-[#E2B874]/35 active:scale-90 transition-all flex items-center justify-center cursor-pointer"
           title="回到聊天最顶端 (⏫)"
         >
           <ChevronsUp className="w-4 h-4" />
@@ -1838,7 +1960,7 @@ ${revisionOriginalText}
         <button
           type="button"
           onClick={handleNavScrollToPrev}
-          className="w-8 h-8 rounded-full bg-white/85 hover:bg-white text-slate-600 hover:text-sky-600 shadow-md backdrop-blur-md border border-slate-200/80 active:scale-90 transition-all flex items-center justify-center cursor-pointer"
+          className="w-8 h-8 rounded-full bg-[#1b1b1e]/90 hover:bg-[#25252b] text-[#E2B874] shadow-md backdrop-blur-md border border-[#E2B874]/35 active:scale-90 transition-all flex items-center justify-center cursor-pointer"
           title="上一条消息 (↑)"
         >
           <ChevronUp className="w-4 h-4" />
@@ -1848,7 +1970,7 @@ ${revisionOriginalText}
         <button
           type="button"
           onClick={handleNavScrollToNext}
-          className="w-8 h-8 rounded-full bg-white/85 hover:bg-white text-slate-600 hover:text-sky-600 shadow-md backdrop-blur-md border border-slate-200/80 active:scale-90 transition-all flex items-center justify-center cursor-pointer"
+          className="w-8 h-8 rounded-full bg-[#1b1b1e]/90 hover:bg-[#25252b] text-[#E2B874] shadow-md backdrop-blur-md border border-[#E2B874]/35 active:scale-90 transition-all flex items-center justify-center cursor-pointer"
           title="下一条消息 (↓)"
         >
           <ChevronDown className="w-4 h-4" />
@@ -1858,7 +1980,7 @@ ${revisionOriginalText}
         <button
           type="button"
           onClick={handleNavScrollToBottom}
-          className="w-8 h-8 rounded-full bg-white/85 hover:bg-white text-slate-600 hover:text-sky-600 shadow-md backdrop-blur-md border border-slate-200/80 active:scale-90 transition-all flex items-center justify-center cursor-pointer"
+          className="w-8 h-8 rounded-full bg-[#1b1b1e]/90 hover:bg-[#25252b] text-[#E2B874] shadow-md backdrop-blur-md border border-[#E2B874]/35 active:scale-90 transition-all flex items-center justify-center cursor-pointer"
           title="跳到最新消息 (⏬)"
         >
           <ChevronsDown className="w-4 h-4" />
@@ -1866,10 +1988,10 @@ ${revisionOriginalText}
       </div>
 
       {/* Fixed Bottom Input Bar */}
-      <footer className="sticky bottom-0 z-30 p-2.5 sm:p-3 bg-white/95 backdrop-blur-md border-t border-sky-100 shadow-[0_-2px_10px_rgba(186,230,253,0.15)] safe-area-pb">
+      <footer className="sticky bottom-0 z-30 p-2.5 sm:p-3 bg-[#141417]/95 backdrop-blur-md border-t border-[#E2B874]/25 shadow-[0_-4px_20px_rgba(0,0,0,0.6)] safe-area-pb">
         <div className="flex flex-col gap-1.5">
           {/* Controls pill row */}
-          <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+          <div className="flex items-center justify-between text-[11px] text-[#A3A3A3] px-1 font-serif">
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
@@ -1882,14 +2004,14 @@ ${revisionOriginalText}
                 }}
                 className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border flex items-center gap-1 transition-colors cursor-pointer ${
                   currentSave.config.playMode === 'director'
-                    ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100'
-                    : 'bg-sky-50 text-sky-700 border-sky-300 hover:bg-sky-100'
+                    ? 'bg-[#E2B874]/20 text-[#E2B874] border-[#E2B874]/50 hover:bg-[#E2B874]/30'
+                    : 'bg-[#222226] text-[#E0E0E0] border-[#E2B874]/30 hover:bg-[#28282e]'
                 }`}
                 title="点击快捷切换对话模式/导演模式"
               >
                 <span>{currentSave.config.playMode === 'director' ? '🎬 导演模式' : '💬 对话模式'}</span>
               </button>
-              <span className="text-[10px] text-slate-400 hidden xs:inline">
+              <span className="text-[10px] text-[#888] hidden xs:inline">
                 {currentSave.config.playMode === 'director' ? '场景指导推演' : '直接承接对话'}
               </span>
             </div>
@@ -1903,7 +2025,7 @@ ${revisionOriginalText}
                     setActiveDrawerTab('settings');
                     setDrawerOpen(true);
                   }}
-                  className="px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-medium cursor-pointer hover:bg-sky-100 transition-colors"
+                  className="px-2 py-0.5 rounded-full bg-[#E2B874]/10 text-[#E2B874] border border-[#E2B874]/30 text-[10px] font-mono cursor-pointer hover:bg-[#E2B874]/20 transition-colors"
                   title="点击在游玩设置中修改字数区间"
                 >
                   字数: {currentSave.config.wordCountMin ?? 300}-{currentSave.config.wordCountMax ?? 800}字
@@ -1915,7 +2037,7 @@ ${revisionOriginalText}
                     setActiveDrawerTab('settings');
                     setDrawerOpen(true);
                   }}
-                  className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 text-[10px] cursor-pointer hover:bg-slate-200 transition-colors"
+                  className="px-2 py-0.5 rounded-full bg-[#1e1e22] text-[#888] border border-[#333] text-[10px] cursor-pointer hover:bg-[#28282e] transition-colors"
                   title="字数未限制，AI自主发挥。点击可设置字数"
                 >
                   AI自由发挥字数
@@ -1926,14 +2048,13 @@ ${revisionOriginalText}
 
           {/* Input Box Row */}
           <div className="flex items-end gap-2">
-            <div className="relative flex-1 bg-slate-50 border border-slate-200 rounded-2xl focus-within:border-sky-400 focus-within:bg-white focus-within:ring-1 focus-within:ring-sky-400 transition-all">
+            <div className="relative flex-1 bg-[#1a1a1e]/90 border border-[#E2B874]/35 rounded-2xl focus-within:border-[#E2B874] focus-within:ring-1 focus-within:ring-[#E2B874]/50 transition-all">
               <textarea
                 ref={inputRef}
-                rows={2}
+                rows={3}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={(e) => {
-                  // 回车键换行（空到下行）；快捷键 Ctrl+Enter 或 Command+Enter 发送
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                     e.preventDefault();
                     handleSendMessage();
@@ -1941,10 +2062,10 @@ ${revisionOriginalText}
                 }}
                 placeholder={
                   currentSave.config.playMode === 'director'
-                    ? '【导演模式】输入场景走向、剧情指示或环境事件指导...'
-                    : '输入你的行动、台词或抉择（如：警惕地拔出腰间短刃，缓步靠近石棺...）'
+                    ? '【导演模式】输入场景走向、剧情指示或环境事件指导... (Ctrl+Enter 发送)'
+                    : '输入你的行动、台词或抉择（如：警惕地拔出腰间短刃，缓步靠近石棺... Ctrl+Enter 发送）'
                 }
-                className="w-full h-[100px] p-2.5 text-xs text-slate-800 placeholder:text-slate-400 bg-transparent resize-none focus:outline-none leading-relaxed"
+                className="w-full h-[100px] min-h-[100px] p-2.5 sm:p-3 text-xs sm:text-sm text-[#E0E0E0] placeholder:text-[#666] bg-transparent resize-none focus:outline-none leading-relaxed font-serif"
               />
             </div>
 
@@ -1953,7 +2074,7 @@ ${revisionOriginalText}
               <button
                 type="button"
                 onClick={handleStopGeneration}
-                className="w-10 h-10 rounded-2xl bg-rose-500 hover:bg-rose-600 active:scale-95 text-white flex items-center justify-center shadow-sm shadow-rose-200 transition-all cursor-pointer shrink-0"
+                className="w-11 h-11 rounded-2xl bg-rose-800 hover:bg-rose-700 active:scale-95 text-white flex items-center justify-center shadow-md shadow-rose-950/60 transition-all cursor-pointer shrink-0"
                 title="停止生成"
               >
                 <Square className="w-4 h-4 fill-current" />
@@ -1963,8 +2084,8 @@ ${revisionOriginalText}
                 type="button"
                 disabled={!inputText.trim()}
                 onClick={() => handleSendMessage()}
-                className="w-10 h-10 rounded-2xl bg-sky-500 hover:bg-sky-600 active:scale-95 disabled:opacity-40 text-white flex items-center justify-center shadow-sm shadow-sky-200 transition-all cursor-pointer shrink-0"
-                title="发送行动"
+                className="w-11 h-11 rounded-2xl bg-[#E2B874] hover:bg-[#edd098] active:scale-95 disabled:opacity-30 disabled:hover:bg-[#E2B874] text-[#111113] flex items-center justify-center shadow-md shadow-[#E2B874]/20 transition-all cursor-pointer shrink-0 font-bold"
+                title="发送行动 (Ctrl+Enter)"
               >
                 <Send className="w-4 h-4" />
               </button>
@@ -1975,62 +2096,62 @@ ${revisionOriginalText}
 
       {/* Slide-out Drawer: Stats, Characters, Worldbook, Settings */}
       {drawerOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/30 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-sm bg-white h-full shadow-2xl flex flex-col border-l border-sky-100">
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-sm bg-[#161619] h-full shadow-2xl flex flex-col border-l border-[#E2B874]/25 text-[#E0E0E0]">
             {/* Drawer Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-              <span className="font-semibold text-xs text-slate-800">文游面板与实时数值</span>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#E2B874]/20 bg-[#131316]">
+              <span className="font-semibold text-xs text-[#E2B874] font-serif tracking-wide">经卷秘典 · 数值与设定</span>
               <button
                 onClick={() => setDrawerOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                className="p-1.5 rounded-lg text-[#888] hover:text-[#E2B874] hover:bg-[#E2B874]/10 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Drawer Tabs */}
-            <div className="flex border-b border-slate-100 text-xs">
+            <div className="flex border-b border-[#E2B874]/20 text-xs bg-[#141417]">
               <button
                 onClick={() => setActiveDrawerTab('stats')}
-                className={`flex-1 py-2 text-center font-medium border-b-2 transition-all ${
+                className={`flex-1 py-2.5 text-center font-serif font-medium border-b-2 transition-all ${
                   activeDrawerTab === 'stats'
-                    ? 'border-sky-500 text-sky-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                    ? 'border-[#E2B874] text-[#E2B874] bg-[#E2B874]/10'
+                    : 'border-transparent text-[#888] hover:text-[#CCC]'
                 }`}
               >
                 <span>数值状态</span>
                 {!currentSave.config.statsTrackingEnabled && (
-                  <span className="ml-1 text-[9px] px-1 py-0.2 rounded bg-slate-100 text-slate-400 font-normal">
+                  <span className="ml-1 text-[9px] px-1 py-0.2 rounded bg-[#25252b] text-[#777] font-normal">
                     已关
                   </span>
                 )}
               </button>
               <button
                 onClick={() => setActiveDrawerTab('characters')}
-                className={`flex-1 py-2 text-center font-medium border-b-2 transition-all ${
+                className={`flex-1 py-2.5 text-center font-serif font-medium border-b-2 transition-all ${
                   activeDrawerTab === 'characters'
-                    ? 'border-sky-500 text-sky-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                    ? 'border-[#E2B874] text-[#E2B874] bg-[#E2B874]/10'
+                    : 'border-transparent text-[#888] hover:text-[#CCC]'
                 }`}
               >
                 登场角色
               </button>
               <button
                 onClick={() => setActiveDrawerTab('worldbook')}
-                className={`flex-1 py-2 text-center font-medium border-b-2 transition-all ${
+                className={`flex-1 py-2.5 text-center font-serif font-medium border-b-2 transition-all ${
                   activeDrawerTab === 'worldbook'
-                    ? 'border-sky-500 text-sky-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                    ? 'border-[#E2B874] text-[#E2B874] bg-[#E2B874]/10'
+                    : 'border-transparent text-[#888] hover:text-[#CCC]'
                 }`}
               >
                 世界观
               </button>
               <button
                 onClick={() => setActiveDrawerTab('settings')}
-                className={`flex-1 py-2 text-center font-medium border-b-2 transition-all ${
+                className={`flex-1 py-2.5 text-center font-serif font-medium border-b-2 transition-all ${
                   activeDrawerTab === 'settings'
-                    ? 'border-sky-500 text-sky-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                    ? 'border-[#E2B874] text-[#E2B874] bg-[#E2B874]/10'
+                    : 'border-transparent text-[#888] hover:text-[#CCC]'
                 }`}
               >
                 游玩设置

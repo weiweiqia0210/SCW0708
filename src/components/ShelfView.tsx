@@ -344,7 +344,24 @@ export const ShelfView: React.FC<ShelfViewProps> = ({
 
                 {/* Preview text */}
                 <div className="p-2.5 rounded-xl bg-slate-50/70 text-xs text-slate-600 line-clamp-2 leading-relaxed">
-                  {lastMsg ? lastMsg.content : save.openingPremise}
+                  {save.mode === 'novel' ? (
+                    <span>
+                      {save.novelProject && save.novelProject.chapters?.length > 0 ? (
+                        <>
+                          【共 {save.novelProject.chapters.length} 章】
+                          {save.novelProject.chapters[0].content
+                            ? save.novelProject.chapters[0].content.slice(0, 100) + '...'
+                            : save.summary || save.openingPremise || '崭新的长篇小说项目，点击进入写作'}
+                        </>
+                      ) : (
+                        save.summary || save.openingPremise || '长篇小说项目'
+                      )}
+                    </span>
+                  ) : lastMsg ? (
+                    lastMsg.content
+                  ) : (
+                    save.openingPremise
+                  )}
                 </div>
 
                 {/* Bottom button */}
@@ -356,10 +373,23 @@ export const ShelfView: React.FC<ShelfViewProps> = ({
 
                   <button
                     onClick={() => onContinueSave(save.id)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 active:scale-95 text-white text-xs font-medium shadow-xs shadow-sky-200 transition-all cursor-pointer"
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-medium shadow-xs transition-all cursor-pointer active:scale-95 ${
+                      save.mode === 'novel'
+                        ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+                        : 'bg-sky-500 hover:bg-sky-600 shadow-sky-200'
+                    }`}
                   >
-                    <Play className="w-3 h-3 fill-current" />
-                    进入游玩
+                    {save.mode === 'novel' ? (
+                      <>
+                        <BookOpen className="w-3 h-3" />
+                        <span>进入写作</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3 h-3 fill-current" />
+                        <span>进入游玩</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

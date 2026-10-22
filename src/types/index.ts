@@ -124,6 +124,62 @@ export interface StorySaveConfig {
 
 export type StoryMode = 'single' | 'multi' | 'novel';
 
+export interface NovelChapterVersion {
+  id: string;
+  name: string; // 例如："初稿", "AI续写版", "润色版"
+  content: string;
+  wordCount: number;
+  timestamp: number;
+}
+
+export interface NovelChapter {
+  id: string;
+  order: number; // 章节序号 1, 2, 3...
+  title: string; // 章节标题 如 "第1章 凛冬苏醒"
+  content: string; // 正文
+  summary?: string; // 本章事件摘要（用于后续章节连贯推演）
+  directive?: string; // 下章大纲走向 / 本章创作指令
+  status: 'draft' | 'completed'; // 草稿 / 已完结
+  versions: NovelChapterVersion[]; // 章节版本记录
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TimelineEvent {
+  id: string;
+  time: string; // 时间节点/纪元 (如 "大历三年初春", "开篇后第三天")
+  title: string; // 事件标题
+  description: string; // 事件梗概
+}
+
+export interface NovelProject {
+  id: string;
+  title: string;
+  summary: string; // 一句话立意/故事梗概
+  genre?: string; // 题材 (玄幻、科幻、悬疑、都市等)
+  targetWordCountPerChapter?: number; // 预期单章字数
+  globalGuidance?: string; // 全局写作规则 / 核心主线 / 禁忌
+
+  // 共享资源关联
+  characterIds: string[]; // 关联的人物设定
+  worldBookIds: string[]; // 关联的世界观世界书
+  presetId?: string; // 关联的全局写作预设
+
+  // 剧情规划
+  outline: string; // 总体剧情大纲 / 分卷规划
+  timeline: TimelineEvent[]; // 时间线事件
+
+  // 统一连贯小说正文
+  fullContent?: string;
+
+  // 章节内容（兼容）
+  chapters: NovelChapter[];
+  activeChapterId?: string;
+
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface StorySave {
   id: string;
   title: string;
@@ -142,6 +198,7 @@ export interface StorySave {
   config: StorySaveConfig;
   disabledCharacterStatIds?: string[]; // 角色状况追踪被关闭的 characterId 列表
   recalcPendingCharacterIds?: string[]; // 刚重新开启、等待根据上下文重算的 characterId 列表
+  novelProject?: NovelProject; // 专供长篇小说创作模式的完整项目数据
   createdAt: number;
   updatedAt: number;
 }

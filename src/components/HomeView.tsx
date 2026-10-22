@@ -128,10 +128,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
             <div className="min-w-0">
               <div className="text-sm font-semibold text-slate-800 flex items-center gap-1.5 truncate">
-                <span>新建小说模式</span>
-                <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-indigo-100 text-indigo-700 font-medium">新模式</span>
+                <span>长篇小说创作</span>
+                <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-indigo-100 text-indigo-700 font-medium">长篇写作</span>
               </div>
-              <div className="text-xs text-indigo-500/80 truncate">沉浸连载长篇 · 章节推演</div>
+              <div className="text-xs text-indigo-500/80 truncate">章节写作 · 大纲走向 · AI续写润色</div>
             </div>
           </div>
           <ArrowRight className="w-4 h-4 text-indigo-300 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all shrink-0" />

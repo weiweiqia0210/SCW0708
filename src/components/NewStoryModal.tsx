@@ -109,6 +109,12 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
   const [openingPremise, setOpeningPremise] = useState('');
   const [writingGuidance, setWritingGuidance] = useState('');
 
+  // Novel project specific state
+  const [novelGenre, setNovelGenre] = useState('玄幻修真');
+  const [novelOutline, setNovelOutline] = useState('');
+  const [novelFirstChapterDirective, setNovelFirstChapterDirective] = useState('');
+  const [novelTargetWordCount, setNovelTargetWordCount] = useState(2500);
+
   // AI Polish Story Setup state
   const [aiDraftInput, setAiDraftInput] = useState('');
   const [isPolishing, setIsPolishing] = useState(false);
@@ -443,17 +449,19 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
 
     const effectiveTitle =
       title.trim() ||
-      `${
-        mode === 'single'
-          ? characters.find((c) => c.id === charIds[0])?.name || '未知'
-          : mode === 'novel'
-          ? '长篇小说'
-          : '群像'
-      }之行·${new Date().toLocaleDateString('zh-CN')}`;
+      (mode === 'novel'
+        ? `长篇小说·${new Date().toLocaleDateString('zh-CN')}`
+        : `${
+            mode === 'single'
+              ? characters.find((c) => c.id === charIds[0])?.name || '未知'
+              : '群像'
+          }之行·${new Date().toLocaleDateString('zh-CN')}`);
 
     const effectivePremise =
-      openingPremise.trim() ||
-      '狂风卷起荒原上的冰冷砂砾，命运的齿轮在这一刻悄然咬合。你迈开脚步，向眼前未知而危险的境遇投身而去。';
+      mode === 'novel'
+        ? novelOutline.trim() || openingPremise.trim() || '（大纲构思中）'
+        : openingPremise.trim() ||
+          '狂风卷起荒原上的冰冷砂砾，命运的齿轮在这一刻悄然咬合。你迈开脚步，向眼前未知而危险的境遇投身而去。';
 
     const finalStats: GameStatDefinition[] = [];
     charIds.forEach((cId) => {
@@ -486,7 +494,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
     const newSave: StorySave = {
       id: `save-${Date.now()}`,
       title: effectiveTitle,
-      summary: effectivePremise.slice(0, 120),
+      summary: (mode === 'novel' ? novelOutline || effectivePremise : effectivePremise).slice(0, 160),
       mode,
       characterIds: charIds,
       characterRoleMap: mode !== 'single' ? characterRoleMap : undefined,
@@ -508,11 +516,11 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
       messages: [],
       stats: finalStats,
       config: {
-        innerVoiceEnabled,
-        branchChoicesEnabled,
-        statsTrackingEnabled: Boolean(statsTrackingEnabled),
+        innerVoiceEnabled: mode === 'novel' ? false : innerVoiceEnabled,
+        branchChoicesEnabled: mode === 'novel' ? false : branchChoicesEnabled,
+        statsTrackingEnabled: mode === 'novel' ? false : Boolean(statsTrackingEnabled),
         corruptionConstraintEnabled,
-        userMaskEnabled,
+        userMaskEnabled: mode === 'novel' ? false : userMaskEnabled,
         targetWordCount,
         wordCountConstraintEnabled: false,
         wordCountMin: 300,
@@ -525,6 +533,39 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
       userMaskId: userMaskEnabled ? selectedUserMaskId || undefined : undefined,
       disabledCharacterStatIds: !statsTrackingEnabled ? [...charIds] : [],
       recalcPendingCharacterIds: [],
+      novelProject:
+        mode === 'novel'
+          ? {
+              id: `novel-${Date.now()}`,
+              title: effectiveTitle,
+              summary: (novelOutline || effectivePremise).slice(0, 200),
+              genre: novelGenre.trim() || '玄幻修真',
+              targetWordCountPerChapter: novelTargetWordCount || 2500,
+              globalGuidance: writingGuidance.trim() || '',
+              characterIds: charIds,
+              worldBookIds: selectedWorldBookIds,
+              presetId: selectedPresetIds[0] || presets[0]?.id || 'preset-immersive-novel',
+              outline: novelOutline.trim(),
+              timeline: [],
+              chapters: [
+                {
+                  id: `chap-${Date.now()}-1`,
+                  order: 1,
+                  title: '第1章',
+                  content: '',
+                  summary: (novelOutline || effectivePremise).slice(0, 200),
+                  directive: novelFirstChapterDirective.trim(),
+                  status: 'draft',
+                  versions: [],
+                  createdAt: Date.now(),
+                  updatedAt: Date.now(),
+                },
+              ],
+              activeChapterId: `chap-${Date.now()}-1`,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            }
+          : undefined,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -857,11 +898,258 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
             )}
           </div>
 
-          {/* Title & Opening Scenario */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="font-medium text-slate-700">故事存档标题</label>
+          {mode === 'novel' ? (
+            /* ======================================================== */
+            /* NOVEL CREATION FORM TEMPLATE                             */
+            /* ======================================================== */
+            <div className="space-y-4 pt-1">
+              {/* Novel Title */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-slate-800 text-xs flex items-center gap-1.5">
+                    <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>小说书名</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">留空则自动生成典雅书名</span>
+                </div>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="例如：《万界星穹录》、《凛冬行者》（选填）"
+                  className="w-full px-3 py-2 rounded-xl border border-indigo-200 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white text-xs text-slate-800"
+                />
+              </div>
+
+              {/* Novel Genre */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-semibold text-slate-800 text-xs">题材分类</label>
+                  <span className="text-[10px] text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                    当前: {novelGenre}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {['玄幻修真', '仙侠古典', '科幻未来', '奇幻异界', '悬疑惊悚', '都市异能', '武侠江湖', '末日灾变'].map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setNovelGenre(g)}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-medium border transition-colors cursor-pointer ${
+                        novelGenre === g
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs font-semibold'
+                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700'
+                      }`}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={novelGenre}
+                  onChange={(e) => setNovelGenre(e.target.value)}
+                  placeholder="自定义题材（如：克苏鲁蒸汽朋克、西幻史诗）"
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-400 text-xs bg-slate-50/50"
+                />
+              </div>
+
+              {/* Story Outline (大纲简要) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-slate-800 text-xs flex items-center gap-1">
+                    <span>剧情大纲简要 / 核心立意</span>
+                    <span className="text-indigo-600">*</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">续写时AI将作为主线参考</span>
+                </div>
+                <textarea
+                  rows={4}
+                  value={novelOutline}
+                  onChange={(e) => setNovelOutline(e.target.value)}
+                  placeholder="在此输入故事的核心大纲简要、主线冲突、全书立意或结局设想...&#10;（例如：主角身为破败宗门的最后传人，自极北寒潭苏醒，身负被封印的上古剑灵，踏上清查灭门凶手与追寻天道真相的复仇之路；沿途历经各大古老世家的博弈与上古禁地的大劫...）"
+                  className="w-full px-3 py-2 rounded-xl border border-indigo-200 focus:outline-none focus:ring-1 focus:ring-indigo-400 leading-relaxed text-xs resize-none font-sans"
+                />
+              </div>
+
+              {/* Chapter 1 Directive (第1章走向指令) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-slate-800 text-xs">第 1 章开篇走向指令（选填）</label>
+                  <span className="text-[10px] text-slate-400">控制起笔情节与破局遭遇</span>
+                </div>
+                <input
+                  type="text"
+                  value={novelFirstChapterDirective}
+                  onChange={(e) => setNovelFirstChapterDirective(e.target.value)}
+                  placeholder="例如：主角在冰棺苏醒，身负重伤之际，惊闻悬崖外传来的追杀者脚步声..."
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-400 text-xs"
+                />
+              </div>
+
+              {/* Expected Word Count per Chapter */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-semibold text-slate-800 text-xs">单章期望字数</label>
+                  <span className="text-[10px] text-indigo-600 font-bold">{novelTargetWordCount} 字 / 章</span>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[1500, 2000, 2500, 3000].map((wc) => (
+                    <button
+                      key={wc}
+                      type="button"
+                      onClick={() => setNovelTargetWordCount(wc)}
+                      className={`py-1.5 rounded-xl border text-center text-xs font-semibold cursor-pointer transition-colors ${
+                        novelTargetWordCount === wc
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      {wc} 字
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Global Guidance / Rules & Taboos */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-slate-800 text-xs">全书写作规则与作者禁忌</label>
+                  <span className="text-[10px] text-slate-400">约束行文笔触与角色言行</span>
+                </div>
+                <textarea
+                  rows={2}
+                  value={writingGuidance}
+                  onChange={(e) => setWritingGuidance(e.target.value)}
+                  placeholder="例如：冷峻克制的白描手法；环境与感官细节着墨充分；主角心狠手辣但言出必践，拒绝圣母；严禁AI发表人生感悟说教..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-400 leading-relaxed text-xs resize-none"
+                />
+              </div>
+
+              {/* Worldbooks & Presets for Novel */}
+              <div className="space-y-3 pt-1 border-t border-slate-100">
+                {/* 关联世界书 */}
+                <div className="p-3 rounded-xl border border-indigo-100 bg-indigo-50/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+                      <span className="font-semibold text-slate-800 text-xs">关联世界书与法则资料库</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">
+                        已选 {selectedWorldBookIds.length} 本
+                      </span>
+                    </div>
+                    {worldbooks.length > 0 && (
+                      <div className="flex items-center gap-1 text-[10px]">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedWorldBookIds(worldbooks.map((w) => w.id))}
+                          className="text-indigo-600 hover:underline cursor-pointer"
+                        >
+                          全选
+                        </button>
+                        <span className="text-slate-300">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedWorldBookIds([])}
+                          className="text-slate-400 hover:text-rose-500 cursor-pointer"
+                        >
+                          清空
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  {worldbooks.length === 0 ? (
+                    <div className="py-2 text-center text-slate-400 text-[11px]">
+                      暂无世界书，可随时在「创作」中添加
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-1.5 max-h-28 overflow-y-auto pr-0.5">
+                      {worldbooks.map((wb) => {
+                        const isSelected = selectedWorldBookIds.includes(wb.id);
+                        return (
+                          <div
+                            key={wb.id}
+                            onClick={() => handleToggleWorldBook(wb.id)}
+                            className={`p-2 rounded-lg border text-left cursor-pointer transition-all flex items-center justify-between gap-1.5 ${
+                              isSelected
+                                ? 'border-indigo-400 bg-white text-indigo-900 shadow-2xs ring-1 ring-indigo-300'
+                                : 'border-slate-200 bg-white/70 text-slate-600 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="font-semibold text-[11px] truncate">{wb.title}</div>
+                              <div className="text-[9px] text-slate-400 truncate">{wb.category} · {wb.entries.length} 设定</div>
+                            </div>
+                            <div
+                              className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
+                                isSelected
+                                  ? 'bg-indigo-600 border-indigo-600 text-white'
+                                  : 'border-slate-300 bg-white'
+                              }`}
+                            >
+                              {isSelected && <Check className="w-2.5 h-2.5" />}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 叙事预设模板 */}
+                <div className="p-3 rounded-xl border border-indigo-100 bg-indigo-50/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
+                      <span className="font-semibold text-slate-800 text-xs">长篇小说叙事风格预设</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">
+                        已选 {selectedPresetIds.length} 个
+                      </span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 max-h-28 overflow-y-auto pr-0.5">
+                    {presets.map((p) => {
+                      const isSelected = selectedPresetIds.includes(p.id);
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => handleTogglePreset(p.id)}
+                          className={`p-2 rounded-lg border text-left cursor-pointer transition-all flex items-center justify-between gap-1.5 ${
+                            isSelected
+                              ? 'border-indigo-400 bg-white text-indigo-900 shadow-2xs ring-1 ring-indigo-300'
+                              : 'border-slate-200 bg-white/70 text-slate-600 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-[11px] truncate">{p.title}</div>
+                            <div className="text-[9px] text-slate-400 truncate">{p.description}</div>
+                          </div>
+                          <div
+                            className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
+                              isSelected
+                                ? 'bg-indigo-600 border-indigo-600 text-white'
+                                : 'border-slate-300 bg-white'
+                            }`}
+                          >
+                            {isSelected && <Check className="w-2.5 h-2.5" />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
+          ) : (
+            /* ======================================================== */
+            /* VISUAL NOVEL / RPG INTERACTIVE GAME FORM TEMPLATE        */
+            /* ======================================================== */
+            <>
+              {/* Title & Opening Scenario */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-medium text-slate-700">故事存档标题</label>
+                </div>
             <input
               type="text"
               value={title}
@@ -1194,14 +1482,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-semibold text-xs flex items-center gap-1">
-                    <span>数值追踪</span>
-                    {mode === 'novel' && (
-                      <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-50 text-indigo-600 font-normal">
-                        小说默认关
-                      </span>
-                    )}
-                  </span>
+                  <span className="font-semibold text-xs">数值追踪</span>
                   <input
                     type="checkbox"
                     checked={statsTrackingEnabled}
@@ -1361,24 +1642,30 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
               </div>
             </div>
           )}
+        </>
+      )}
 
-          {/* Footer buttons */}
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
-            >
-              取消
-            </button>
-            <button
-              type="submit"
-              className="px-6 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-medium shadow-sm shadow-sky-200 transition-all cursor-pointer flex items-center gap-1.5"
-            >
-              <Sparkles className="w-4 h-4" />
-              开启文游
-            </button>
-          </div>
+      {/* Footer buttons */}
+      <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+        >
+          取消
+        </button>
+        <button
+          type="submit"
+          className={`px-6 py-2 rounded-xl active:scale-95 text-white font-medium shadow-sm transition-all cursor-pointer flex items-center gap-1.5 ${
+            mode === 'novel'
+              ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+              : 'bg-sky-500 hover:bg-sky-600 shadow-sky-200'
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>{mode === 'novel' ? '创建小说项目并写作' : '开启文游'}</span>
+        </button>
+      </div>
         </form>
       </div>
     </div>

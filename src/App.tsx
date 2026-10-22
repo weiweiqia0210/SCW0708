@@ -6,6 +6,7 @@ import { ShelfView } from './components/ShelfView';
 import { SettingsView } from './components/SettingsView';
 import { ProfileView } from './components/ProfileView';
 import { ChatView } from './components/ChatView';
+import { NovelStudioView } from './components/NovelStudioView';
 import { CharacterModal } from './components/CharacterModal';
 import { WorldBookModal } from './components/WorldBookModal';
 import { PresetModal } from './components/PresetModal';
@@ -259,20 +260,32 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 antialiased font-sans selection:bg-sky-200 selection:text-sky-900">
-      {/* If in Chat/Story Mode, render full screen ChatView (hiding bottom navigation) */}
+      {/* If in Chat/Story Mode, render full screen View (NovelStudioView for novels, ChatView for visual novel/CYOA) */}
       {currentActiveSave ? (
-        <ChatView
-          save={currentActiveSave}
-          characters={characters}
-          worldbooks={worldbooks}
-          presets={presets}
-          userMasks={userMasks}
-          activeUserMaskId={activeUserMaskId}
-          settings={settings}
-          onBack={handleExitChat}
-          onUpdateSave={handleUpdateStorySave}
-          onSavePreset={handleSavePreset}
-        />
+        currentActiveSave.mode === 'novel' ? (
+          <NovelStudioView
+            save={currentActiveSave}
+            characters={characters}
+            worldbooks={worldbooks}
+            presets={presets}
+            settings={settings}
+            onBack={handleExitChat}
+            onUpdateSave={handleUpdateStorySave}
+          />
+        ) : (
+          <ChatView
+            save={currentActiveSave}
+            characters={characters}
+            worldbooks={worldbooks}
+            presets={presets}
+            userMasks={userMasks}
+            activeUserMaskId={activeUserMaskId}
+            settings={settings}
+            onBack={handleExitChat}
+            onUpdateSave={handleUpdateStorySave}
+            onSavePreset={handleSavePreset}
+          />
+        )
       ) : (
         /* Standard Navigation Views */
         <div className="min-h-screen min-h-[100dvh] flex flex-col">
