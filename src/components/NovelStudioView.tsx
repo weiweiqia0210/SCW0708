@@ -447,10 +447,10 @@ export const NovelStudioView: React.FC<NovelStudioViewProps> = ({
       </header>
 
       {/* 主体画布与侧栏 */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex flex-col overflow-hidden relative">
         {/* 侧栏：章节目录（纯用来定位） */}
         {showChaptersDrawer && (
-          <div className="w-64 sm:w-72 bg-white border-r border-slate-200/80 flex flex-col shrink-0 h-full overflow-hidden z-20 shadow-sm animate-in slide-in-from-left duration-150">
+          <div className="absolute inset-y-0 left-0 z-30 w-64 sm:w-72 bg-white border-r border-slate-200/80 flex flex-col shrink-0 h-full overflow-hidden shadow-xl animate-in slide-in-from-left duration-150">
             <div className="p-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <span className="text-xs font-bold text-slate-800">章节目录定位</span>
               <button
@@ -489,7 +489,7 @@ export const NovelStudioView: React.FC<NovelStudioViewProps> = ({
 
         {/* 侧栏：大纲与世界观设定 */}
         {showProjectDrawer && (
-          <div className="w-72 sm:w-80 bg-white border-r border-slate-200/80 flex flex-col shrink-0 h-full overflow-hidden z-20 shadow-sm animate-in slide-in-from-left duration-150">
+          <div className="absolute inset-y-0 left-0 z-30 w-72 sm:w-80 bg-white border-r border-slate-200/80 flex flex-col shrink-0 h-full overflow-hidden shadow-xl animate-in slide-in-from-left duration-150">
             <div className="p-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div className="flex items-center gap-1">
                 {(['outline', 'characters', 'worldbooks', 'settings'] as const).map((tab) => (
@@ -643,7 +643,7 @@ export const NovelStudioView: React.FC<NovelStudioViewProps> = ({
         )}
 
         {/* 核心叙事流画布：无气泡排版，玩家右输出，AI左输出 */}
-        <div className="flex-1 overflow-y-auto flex justify-center pb-32">
+        <div className="flex-1 overflow-y-auto flex justify-center pb-8">
           <div className="w-full max-w-3xl px-4 py-6">
             {/* 空白开端提示 */}
             {messages.length === 0 && !streamingText && (
@@ -811,7 +811,7 @@ export const NovelStudioView: React.FC<NovelStudioViewProps> = ({
         {/* 底部通栏扩宽对话框（像聊天那样） */}
         <div
           style={{ height: '130px', width: '801px' }}
-          className="absolute bottom-0 left-0 right-0 mx-auto max-w-full p-3 sm:p-4 bg-gradient-to-t from-white via-white/95 to-white/60 backdrop-blur-md border-t border-slate-200/80 z-10 flex flex-col items-center justify-center"
+          className="mx-auto max-w-full shrink-0 p-3 sm:p-4 bg-white/95 backdrop-blur-md border-t border-slate-200/80 z-10 flex flex-col items-center justify-center"
         >
           <div className="w-full max-w-3xl">
             <div
