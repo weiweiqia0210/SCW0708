@@ -13,6 +13,7 @@ import { PresetModal } from './components/PresetModal';
 import { NewStoryModal } from './components/NewStoryModal';
 import { TRPGView } from './components/TRPG/TRPGView';
 import { TRPGNewSessionModal } from './components/TRPG/TRPGNewSessionModal';
+import { DialogueModeView } from './components/Dialogue/DialogueModeView';
 import {
   CharacterCard,
   WorldBook,
@@ -73,6 +74,9 @@ export default function App() {
   const [trpgSessions, setTrpgSessions] = useState<TRPGSession[]>(() => loadTRPGSessions());
   const [activeTRPGSessionIdState, setActiveTRPGSessionIdState] = useState<string | null>(() => getActiveTRPGSessionId());
   const [isNewTRPGModalOpen, setIsNewTRPGModalOpen] = useState(false);
+
+  // Dialogue Mode state (GPT/Gemini/DeepSeek 风格自由对话模式)
+  const [isDialogueModeActive, setIsDialogueModeActive] = useState(false);
 
   const handleOpenTRPGSession = (sessionId: string) => {
     setActiveTRPGSessionIdState(sessionId);
@@ -309,6 +313,11 @@ export default function App() {
           onExit={handleExitTRPGSession}
           onUpdateSession={handleUpdateTRPGSession}
         />
+      ) : isDialogueModeActive ? (
+        <DialogueModeView
+          settings={settings}
+          onExit={() => setIsDialogueModeActive(false)}
+        />
       ) : currentActiveSave ? (
         currentActiveSave.mode === 'novel' ? (
           <NovelStudioView
@@ -353,6 +362,7 @@ export default function App() {
                 }}
                 onOpenNewTRPGModal={() => setIsNewTRPGModalOpen(true)}
                 onContinueTRPGSession={handleOpenTRPGSession}
+                onOpenDialogueMode={() => setIsDialogueModeActive(true)}
                 onNavigateToTab={(tab) => setActiveTab(tab)}
               />
             )}

@@ -219,4 +219,46 @@ export interface AppSettings {
 
 export type ActiveNavTab = 'home' | 'create' | 'shelf' | 'settings' | 'profile';
 
+// ==========================================
+// 极简对话模式 (Dialogue Mode - GPT/Gemini/DeepSeek 风格)
+// ==========================================
+export interface DialogueMessageVersion {
+  id: string;
+  content: string;
+  thinking?: string;
+  timestamp: number;
+}
+
+export interface DialogueMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: number;
+  thinking?: string; // 深度思考内容 (类似 DeepSeek-R1 / Gemini 思考过程)
+  isThinkingExpanded?: boolean;
+  versions?: DialogueMessageVersion[]; // 版本历史（保留新旧版本）
+  currentVersionIndex?: number; // 当前查看的版本序号 (0, 1, 2...)
+}
+
+export interface DialogueAISettings {
+  name: string; // AI 助手名称，如 "DeepSeek 思考版" / "Gemini 智囊" / "创意构想师"
+  avatarType: 'sparkles' | 'bot' | 'brain' | 'terminal' | 'cat' | 'custom';
+  avatarUrl?: string; // 自定义头像 URL 或 base64
+  themeColor: 'sky' | 'indigo' | 'emerald' | 'violet' | 'rose' | 'amber' | 'slate';
+  systemPrompt: string; // 自定义系统提示词 / 人设指令
+  temperature: number;
+  enableThinking: boolean; // 是否展示深度思考链
+  customPersonaTitle?: string; // 助手身份头衔
+}
+
+export interface DialogueSession {
+  id: string;
+  title: string;
+  messages: DialogueMessage[];
+  aiSettings: DialogueAISettings;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export * from './trpg';
+

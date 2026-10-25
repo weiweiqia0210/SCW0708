@@ -1,5 +1,19 @@
 import React from 'react';
-import { Play, Plus, BookOpen, Clock, Users, ArrowRight, UserCircle, Book, Sliders, Dices, Swords } from 'lucide-react';
+import {
+  Play,
+  Plus,
+  BookOpen,
+  Clock,
+  Users,
+  ArrowRight,
+  UserCircle,
+  Book,
+  Sliders,
+  Dices,
+  Swords,
+  MessageSquare,
+  Sparkles,
+} from 'lucide-react';
 import { StorySave, CharacterCard, StoryMode, TRPGSession } from '../types';
 
 interface HomeViewProps {
@@ -12,6 +26,7 @@ interface HomeViewProps {
   onOpenNewStoryModal: (initialMode?: StoryMode) => void;
   onOpenNewTRPGModal: () => void;
   onContinueTRPGSession: (sessionId: string) => void;
+  onOpenDialogueMode: () => void;
   onNavigateToTab: (tab: 'create' | 'shelf' | 'settings' | 'profile') => void;
 }
 
@@ -25,6 +40,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onOpenNewStoryModal,
   onOpenNewTRPGModal,
   onContinueTRPGSession,
+  onOpenDialogueMode,
   onNavigateToTab,
 }) => {
   // Sort saves by updatedAt descending
@@ -141,29 +157,56 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </button>
       </div>
 
-      {/* Featured Entry: TRPG Mode (跑团模式 内测版) */}
+      {/* Featured Entry: TRPG Mode (跑团模式) */}
       <button
         onClick={onOpenNewTRPGModal}
         className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-purple-50/80 via-white to-indigo-50/80 border border-purple-200/90 shadow-xs hover:border-purple-300 hover:shadow-sm transition-all group active:scale-[0.99] text-left cursor-pointer"
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
             <Dices className="w-5 h-5" />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-slate-800">新建跑团开档</span>
-              <span className="px-2 py-0.2 rounded-full bg-purple-100 text-purple-700 text-[10px] font-bold border border-purple-200">
-                内测版
+              <span className="text-sm font-bold text-slate-800 shrink-0">新建跑团开档</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 text-[10px] font-bold border border-purple-200 shrink-0">
+                跑团
               </span>
             </div>
-            <div className="text-xs text-slate-400 truncate">
-              规则快照 · 属性技能 · D20/多面骰检定 · 半可视战斗
+            <div className="text-xs text-slate-400 truncate mt-0.5">
+              属性检定 · 骰点对决 · 自由探险
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1 text-xs font-semibold text-purple-600 group-hover:translate-x-0.5 transition-transform shrink-0">
+        <div className="flex items-center gap-1 text-xs font-semibold text-purple-600 group-hover:translate-x-0.5 transition-transform shrink-0 ml-2">
           <span>开团</span>
+          <ArrowRight className="w-4 h-4" />
+        </div>
+      </button>
+
+      {/* Featured Entry: Dialogue Mode (自由对话模式) */}
+      <button
+        onClick={onOpenDialogueMode}
+        className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-sky-50/90 via-white to-indigo-50/90 border border-sky-200/90 shadow-xs hover:border-sky-300 hover:shadow-sm transition-all group active:scale-[0.99] text-left cursor-pointer"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 via-indigo-600 to-purple-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
+            <MessageSquare className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-slate-800 shrink-0">自由对话模式</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-sky-100 text-sky-800 text-[10px] font-bold border border-sky-200 shrink-0">
+                对话
+              </span>
+            </div>
+            <div className="text-xs text-slate-400 truncate mt-0.5">
+              极简对话 · 深度思考 · 随心改人设
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 text-xs font-semibold text-sky-600 group-hover:translate-x-0.5 transition-transform shrink-0 ml-2">
+          <span>对话</span>
           <ArrowRight className="w-4 h-4" />
         </div>
       </button>
