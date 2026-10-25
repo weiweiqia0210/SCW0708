@@ -57,13 +57,13 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
   onClose,
   onCreateStory,
 }) => {
-  const [mode, setMode] = useState<StoryMode>(initialMode || 'single');
+  const isNovel = initialMode === 'novel';
+  const [mode, setMode] = useState<StoryMode>(isNovel ? 'novel' : 'multi');
 
   useEffect(() => {
     if (isOpen) {
-      const target = initialMode || 'single';
-      setMode(target);
-      if (target === 'novel') {
+      if (initialMode === 'novel') {
+        setMode('novel');
         setTargetWordCount('long');
         setStatsTrackingEnabled(false);
         const novelPreset = presets.find((p) => p.id === 'preset-immersive-novel');
@@ -71,6 +71,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
           setSelectedPresetIds([novelPreset.id]);
         }
       } else {
+        setMode('multi');
         setStatsTrackingEnabled(true);
       }
     }
@@ -158,12 +159,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
   const [aiInitialStatFeedback, setAiInitialStatFeedback] = useState<string | null>(null);
 
   const handleAiInitStats = async () => {
-    const activeCharIds =
-      mode === 'single'
-        ? selectedCharacterId
-          ? [selectedCharacterId]
-          : []
-        : selectedMultiCharIds;
+    const activeCharIds = selectedMultiCharIds;
     const selectedChars = characters.filter((c) => activeCharIds.includes(c.id));
     if (selectedChars.length === 0) {
       setAiInitialStatFeedback('请先在上方勾选至少一名登场角色');
@@ -259,6 +255,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
   const handleApplyInspiration = (insp: { title: string; premise: string }) => {
     setTitle(insp.title);
     setOpeningPremise(insp.premise);
+    setNovelOutline(insp.premise);
   };
 
   const handleAIPolishSetup = async () => {
@@ -271,12 +268,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
       const settings: AppSettings = loadSettings();
 
       // Gather active characters
-      const charIds =
-        mode === 'single'
-          ? selectedCharacterId
-            ? [selectedCharacterId]
-            : []
-          : selectedMultiCharIds;
+      const charIds = selectedMultiCharIds;
       const activeCharObjs = characters.filter((c) => charIds.includes(c.id));
       const activeWbObjs = worldbooks.filter((wb) => selectedWorldBookIds.includes(wb.id));
 
@@ -284,21 +276,27 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
         userInput: aiDraftInput.trim(),
         characters: activeCharObjs,
         worldbooks: activeWbObjs,
-        roleMap: mode === 'multi' ? characterRoleMap : undefined,
+        roleMap: characterRoleMap,
         provider: settings.provider,
         model: settings.model,
         customApiKey: settings.customApiKey,
         customEndpoint: settings.customEndpoint,
+        isNovel: isNovel || mode === 'novel',
+        novelGenre: novelGenre,
       });
 
       if (!result.success || !result.data) {
         throw new Error(result.error || 'AI 润色返回格式异常');
       }
 
-      const { title: newTitle, openingPremise: newPremise, writingGuidance: newGuidance } = result.data;
+      const { title: newTitle, openingPremise: newPremise, writingGuidance: newGuidance, outline: newOutline } = result.data;
 
       if (newTitle) setTitle(newTitle.trim());
-      if (newPremise) setOpeningPremise(newPremise.trim());
+      const outlineContent = (newOutline || newPremise || '').trim();
+      if (outlineContent) {
+        setOpeningPremise(outlineContent);
+        setNovelOutline(outlineContent);
+      }
       if (newGuidance) setWritingGuidance(newGuidance.trim());
 
       setPolishSuccess(true);
@@ -357,11 +355,6 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
   };
 
   const handleCardClick = (charId: string) => {
-    if (mode === 'single') {
-      setSelectedCharacterId(charId);
-      return;
-    }
-
     const isSelected = selectedMultiCharIds.includes(charId);
     const currentRole = characterRoleMap[charId] || 'supporting';
 
@@ -436,12 +429,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const charIds =
-      mode === 'single'
-        ? selectedCharacterId
-          ? [selectedCharacterId]
-          : []
-        : selectedMultiCharIds;
+    const charIds = selectedMultiCharIds;
     if (charIds.length === 0 || !charIds[0]) {
       alert('请先创建并选择至少一个角色');
       return;
@@ -452,9 +440,9 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
       (mode === 'novel'
         ? `长篇小说·${new Date().toLocaleDateString('zh-CN')}`
         : `${
-            mode === 'single'
-              ? characters.find((c) => c.id === charIds[0])?.name || '未知'
-              : '群像'
+            characters.find((c) => (characterRoleMap[c.id] || 'supporting') === 'protagonist')?.name ||
+            characters.find((c) => c.id === charIds[0])?.name ||
+            '文游'
           }之行·${new Date().toLocaleDateString('zh-CN')}`);
 
     const effectivePremise =
@@ -497,7 +485,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
       summary: (mode === 'novel' ? novelOutline || effectivePremise : effectivePremise).slice(0, 160),
       mode,
       characterIds: charIds,
-      characterRoleMap: mode !== 'single' ? characterRoleMap : undefined,
+      characterRoleMap: characterRoleMap,
       worldBookId: selectedWorldBookIds[0] || undefined,
       worldBookIds: selectedWorldBookIds,
       presetId:
@@ -581,17 +569,12 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-slate-800">
-              {mode === 'novel' ? '新建小说模式开档' : mode === 'multi' ? '新建群像文游开档' : '新建文游开档'}
+              {isNovel ? '新建小说开档' : '新建文游开档'}
             </span>
-            {mode === 'novel' && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">
-                新模式 · 沉浸长篇
-              </span>
-            )}
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -599,181 +582,84 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="overflow-y-auto p-5 space-y-4 text-xs">
-          {/* Mode Selector */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block font-medium text-slate-700">开档模式</label>
-              {mode === 'novel' && (
-                <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full font-medium border border-indigo-100">
-                  长篇小说连载 · 章节起伏与文学质感
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => handleSelectMode('single')}
-                className={`p-2.5 sm:p-3 rounded-xl border flex items-center gap-2.5 transition-all text-left cursor-pointer ${
-                  mode === 'single'
-                    ? 'border-sky-400 bg-sky-50/60 text-sky-800 ring-1 ring-sky-300'
-                    : 'border-slate-200 hover:border-slate-300 bg-white text-slate-600'
-                }`}
-              >
-                <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
-                  <User className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="font-semibold text-xs text-slate-800">单人专属角色档</div>
-                  <div className="text-[10px] text-slate-400 truncate">单角色深度沉浸互动</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleSelectMode('multi')}
-                className={`p-2.5 sm:p-3 rounded-xl border flex items-center gap-2.5 transition-all text-left cursor-pointer ${
-                  mode === 'multi'
-                    ? 'border-sky-400 bg-sky-50/60 text-sky-800 ring-1 ring-sky-300'
-                    : 'border-slate-200 hover:border-slate-300 bg-white text-slate-600'
-                }`}
-              >
-                <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
-                  <Users className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="font-semibold text-xs text-slate-800">多人世界群像档</div>
-                  <div className="text-[10px] text-slate-400 truncate">多角色同台交互剧情</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleSelectMode('novel')}
-                className={`p-2.5 sm:p-3 rounded-xl border flex items-center gap-2.5 transition-all text-left cursor-pointer ${
-                  mode === 'novel'
-                    ? 'border-indigo-400 bg-gradient-to-br from-indigo-50/90 to-purple-50/40 text-indigo-900 ring-1 ring-indigo-300'
-                    : 'border-slate-200 hover:border-indigo-200 bg-white text-slate-600'
-                }`}
-              >
-                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
-                  <BookOpen className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="font-semibold text-xs text-slate-800 flex items-center gap-1">
-                    <span>新建小说模式</span>
-                    <span className="text-[9px] px-1 py-0.2 rounded-full bg-indigo-100 text-indigo-700 font-medium shrink-0">
-                      新模式
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-indigo-500/80 truncate">沉浸连载·长篇推演</div>
-                </div>
-              </button>
-            </div>
-          </div>
-
           {/* Character selection */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="block font-medium text-slate-700 text-xs">
-                {mode === 'single'
-                  ? '选择互动角色'
-                  : mode === 'novel'
-                  ? '选择登场角色（主角 / 配角 / 群演）'
-                  : '选择入局角色（可多选）'}
+                选择登场角色（主角 / 配角 / 群演）
               </label>
-              {mode !== 'single' && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-semibold text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-full border border-sky-100">
-                    已选 {selectedMultiCharIds.length} 人
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleSelectAllInRole}
-                    className="text-[10px] text-sky-600 hover:text-sky-700 hover:underline cursor-pointer font-medium"
-                  >
-                    一键全选
-                  </button>
-                  <span className="text-slate-200 text-[10px]">|</span>
-                  <button
-                    type="button"
-                    onClick={handleClearInRole}
-                    className="text-[10px] text-slate-400 hover:text-rose-600 hover:underline cursor-pointer font-medium"
-                  >
-                    一键清除
-                  </button>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-full border border-sky-100">
+                  已选 {selectedMultiCharIds.length} 人
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSelectAllInRole}
+                  className="text-[10px] text-sky-600 hover:text-sky-700 hover:underline cursor-pointer font-medium"
+                >
+                  一键全选
+                </button>
+                <span className="text-slate-200 text-[10px]">|</span>
+                <button
+                  type="button"
+                  onClick={handleClearInRole}
+                  className="text-[10px] text-slate-400 hover:text-rose-600 hover:underline cursor-pointer font-medium"
+                >
+                  一键清除
+                </button>
+              </div>
             </div>
 
             {/* Role Tabs (按主角/配角/群演按钮往下选角色卡) */}
-            {mode !== 'single' && (
-              <div className="space-y-1">
-                <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-[11px]">
-                  {[
-                    {
-                      key: 'protagonist',
-                      label: '👑 主角',
-                      count: selectedMultiCharIds.filter(
-                        (id) => (characterRoleMap[id] || 'supporting') === 'protagonist'
-                      ).length,
-                    },
-                    {
-                      key: 'supporting',
-                      label: '⭐ 配角',
-                      count: selectedMultiCharIds.filter(
-                        (id) => (characterRoleMap[id] || 'supporting') === 'supporting'
-                      ).length,
-                    },
-                    {
-                      key: 'extra',
-                      label: '🎭 群演',
-                      count: selectedMultiCharIds.filter(
-                        (id) => characterRoleMap[id] === 'extra'
-                      ).length,
-                    },
-                    {
-                      key: 'all',
-                      label: '全部已选',
-                      count: selectedMultiCharIds.length,
-                    },
-                  ].map((tab) => {
-                    const isActive = roleFilter === tab.key;
-                    return (
-                      <button
-                        key={tab.key}
-                        type="button"
-                        onClick={() => setRoleFilter(tab.key as any)}
-                        className={`flex-1 py-1 rounded-lg font-medium transition-all cursor-pointer text-center ${
-                          isActive
-                            ? 'bg-white text-slate-800 shadow-2xs font-semibold'
-                            : 'text-slate-500 hover:text-slate-700'
-                        }`}
-                      >
-                        <span>{tab.label}</span>
-                        <span className="ml-1 text-[9px] opacity-70">({tab.count})</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="text-[10px] text-slate-400 px-1 flex items-center justify-between">
-                  <span>
-                    {roleFilter === 'protagonist' &&
-                      (mode === 'novel'
-                        ? '👉 当前选择【小说主角】：核心叙事视点与高光聚焦，承载主线'
-                        : '👉 当前选择【主角】：点击下方角色卡将其选为主角（戏份核心聚焦）')}
-                    {roleFilter === 'supporting' &&
-                      (mode === 'novel'
-                        ? '👉 当前选择【关键配角】：重要剧情推演与因果转折，推动情节发展'
-                        : '👉 当前选择【配角】：点击下方角色卡将其选为配角（推动剧情与冲突）')}
-                    {roleFilter === 'extra' &&
-                      (mode === 'novel'
-                        ? '👉 当前选择【场景群演】：时代背景与市井氛围描摹，点到即止'
-                        : '👉 当前选择【群演】：点击下方角色卡将其选为群演（场景氛围烘托）')}
-                    {roleFilter === 'all' && '👉 全部角色概览：点击角色卡可切换选入/移出'}
-                  </span>
-                </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-[11px]">
+                {[
+                  {
+                    key: 'protagonist',
+                    label: '👑 主角',
+                    count: selectedMultiCharIds.filter(
+                      (id) => (characterRoleMap[id] || 'supporting') === 'protagonist'
+                    ).length,
+                  },
+                  {
+                    key: 'supporting',
+                    label: '⭐ 配角',
+                    count: selectedMultiCharIds.filter(
+                      (id) => (characterRoleMap[id] || 'supporting') === 'supporting'
+                    ).length,
+                  },
+                  {
+                    key: 'extra',
+                    label: '🎭 群演',
+                    count: selectedMultiCharIds.filter(
+                      (id) => characterRoleMap[id] === 'extra'
+                    ).length,
+                  },
+                  {
+                    key: 'all',
+                    label: '全部已选',
+                    count: selectedMultiCharIds.length,
+                  },
+                ].map((tab) => {
+                  const isActive = roleFilter === tab.key;
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setRoleFilter(tab.key as any)}
+                      className={`flex-1 py-1 rounded-lg font-medium transition-all cursor-pointer text-center ${
+                        isActive
+                          ? 'bg-white text-slate-800 shadow-2xs font-semibold'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      <span>{tab.label}</span>
+                      <span className="ml-1 text-[9px] opacity-70">({tab.count})</span>
+                    </button>
+                  );
+                })}
               </div>
-            )}
+            </div>
 
             {/* Character Cards Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-44 overflow-y-auto p-1">
@@ -783,10 +669,7 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                 </div>
               ) : (
                 characters.map((char) => {
-                  const isSelected =
-                    mode === 'single'
-                      ? selectedCharacterId === char.id
-                      : selectedMultiCharIds.includes(char.id);
+                  const isSelected = selectedMultiCharIds.includes(char.id);
                   const role = getCharRole(char.id);
 
                   const cardStyle = isSelected
@@ -813,27 +696,19 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                       <div className="min-w-0 flex-1">
                         <div className="font-semibold truncate text-[11px] flex items-center justify-between">
                           <span className="truncate">{char.name}</span>
-                          {mode === 'single' ? (
-                            isSelected && (
-                              <span className="w-3.5 h-3.5 rounded-full bg-sky-500 text-white flex items-center justify-center shrink-0 ml-1">
-                                <Check className="w-2.5 h-2.5" />
-                              </span>
-                            )
-                          ) : (
-                            isSelected && (
-                              <span
-                                className={`text-[9px] px-1 py-0.2 rounded font-medium flex items-center gap-0.5 shrink-0 ml-1 border ${
-                                  role === 'protagonist'
-                                    ? 'bg-amber-100 text-amber-800 border-amber-200 font-bold'
-                                    : role === 'extra'
-                                    ? 'bg-slate-200 text-slate-700 border-slate-300 font-bold'
-                                    : 'bg-sky-100 text-sky-800 border-sky-200 font-bold'
-                                }`}
-                              >
-                                <Check className="w-2.5 h-2.5" />
-                                {role === 'protagonist' ? '主角' : role === 'extra' ? '群演' : '配角'}
-                              </span>
-                            )
+                          {isSelected && (
+                            <span
+                              className={`text-[9px] px-1 py-0.2 rounded font-medium flex items-center gap-0.5 shrink-0 ml-1 border ${
+                                role === 'protagonist'
+                                  ? 'bg-amber-100 text-amber-800 border-amber-200 font-bold'
+                                  : role === 'extra'
+                                  ? 'bg-slate-200 text-slate-700 border-slate-300 font-bold'
+                                  : 'bg-sky-100 text-sky-800 border-sky-200 font-bold'
+                              }`}
+                            >
+                              <Check className="w-2.5 h-2.5" />
+                              {role === 'protagonist' ? '主角' : role === 'extra' ? '群演' : '配角'}
+                            </span>
                           )}
                         </div>
                         <div className="text-[10px] text-slate-400 truncate">{char.identity || '角色'}</div>
@@ -905,26 +780,20 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
             <div className="space-y-4 pt-1">
               {/* Novel Title */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-semibold text-slate-800 text-xs flex items-center gap-1.5">
-                    <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>小说书名</span>
-                  </label>
-                  <span className="text-[10px] text-slate-400">留空则自动生成典雅书名</span>
-                </div>
+                <label className="block font-medium text-slate-700 mb-1">小说书名（选填）</label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="例如：《万界星穹录》、《凛冬行者》（选填）"
-                  className="w-full px-3 py-2 rounded-xl border border-indigo-200 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white text-xs text-slate-800"
+                  placeholder="输入书名（留空自动生成）"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-400 bg-white text-xs text-slate-800"
                 />
               </div>
 
               {/* Novel Genre */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="font-semibold text-slate-800 text-xs">题材分类</label>
+                  <label className="font-medium text-slate-700">题材分类</label>
                   <span className="text-[10px] text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
                     当前: {novelGenre}
                   </span>
@@ -949,40 +818,34 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                   type="text"
                   value={novelGenre}
                   onChange={(e) => setNovelGenre(e.target.value)}
-                  placeholder="自定义题材（如：克苏鲁蒸汽朋克、西幻史诗）"
+                  placeholder="自定义题材"
                   className="w-full px-3 py-1.5 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-400 text-xs bg-slate-50/50"
                 />
               </div>
 
               {/* Story Outline (大纲简要) */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-semibold text-slate-800 text-xs flex items-center gap-1">
-                    <span>剧情大纲简要 / 核心立意</span>
-                    <span className="text-indigo-600">*</span>
-                  </label>
-                  <span className="text-[10px] text-slate-400">续写时AI将作为主线参考</span>
-                </div>
+                <label className="block font-medium text-slate-700 mb-1">
+                  大纲简要 <span className="text-rose-500">*</span>
+                </label>
                 <textarea
                   rows={4}
+                  required
                   value={novelOutline}
                   onChange={(e) => setNovelOutline(e.target.value)}
-                  placeholder="在此输入故事的核心大纲简要、主线冲突、全书立意或结局设想...&#10;（例如：主角身为破败宗门的最后传人，自极北寒潭苏醒，身负被封印的上古剑灵，踏上清查灭门凶手与追寻天道真相的复仇之路；沿途历经各大古老世家的博弈与上古禁地的大劫...）"
-                  className="w-full px-3 py-2 rounded-xl border border-indigo-200 focus:outline-none focus:ring-1 focus:ring-indigo-400 leading-relaxed text-xs resize-none font-sans"
+                  placeholder="在此输入故事的大纲简要、主线冲突或全书设想..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-400 leading-relaxed text-xs resize-none font-sans"
                 />
               </div>
 
               {/* Chapter 1 Directive (第1章走向指令) */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-semibold text-slate-800 text-xs">第 1 章开篇走向指令（选填）</label>
-                  <span className="text-[10px] text-slate-400">控制起笔情节与破局遭遇</span>
-                </div>
+                <label className="block font-medium text-slate-700 mb-1">第 1 章走向指令（选填）</label>
                 <input
                   type="text"
                   value={novelFirstChapterDirective}
                   onChange={(e) => setNovelFirstChapterDirective(e.target.value)}
-                  placeholder="例如：主角在冰棺苏醒，身负重伤之际，惊闻悬崖外传来的追杀者脚步声..."
+                  placeholder="例如：主角在寒潭苏醒，遭遇伏击..."
                   className="w-full px-3 py-1.5 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-400 text-xs"
                 />
               </div>
@@ -990,8 +853,8 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
               {/* Expected Word Count per Chapter */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="font-semibold text-slate-800 text-xs">单章期望字数</label>
-                  <span className="text-[10px] text-indigo-600 font-bold">{novelTargetWordCount} 字 / 章</span>
+                  <label className="font-medium text-slate-700">单章期望字数</label>
+                  <span className="text-[10px] text-indigo-600 font-bold">{novelTargetWordCount} 字</span>
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   {[1500, 2000, 2500, 3000].map((wc) => (
@@ -1013,15 +876,12 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
 
               {/* Global Guidance / Rules & Taboos */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-semibold text-slate-800 text-xs">全书写作规则与作者禁忌</label>
-                  <span className="text-[10px] text-slate-400">约束行文笔触与角色言行</span>
-                </div>
+                <label className="block font-medium text-slate-700 mb-1">全书写作指导（选填）</label>
                 <textarea
                   rows={2}
                   value={writingGuidance}
                   onChange={(e) => setWritingGuidance(e.target.value)}
-                  placeholder="例如：冷峻克制的白描手法；环境与感官细节着墨充分；主角心狠手辣但言出必践，拒绝圣母；严禁AI发表人生感悟说教..."
+                  placeholder="输入写作风格与规则约束..."
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-400 leading-relaxed text-xs resize-none"
                 />
               </div>
@@ -1029,11 +889,11 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
               {/* Worldbooks & Presets for Novel */}
               <div className="space-y-3 pt-1 border-t border-slate-100">
                 {/* 关联世界书 */}
-                <div className="p-3 rounded-xl border border-indigo-100 bg-indigo-50/30 space-y-2">
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-                      <span className="font-semibold text-slate-800 text-xs">关联世界书与法则资料库</span>
+                      <span className="font-medium text-slate-700 text-xs">关联世界书</span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">
                         已选 {selectedWorldBookIds.length} 本
                       </span>
@@ -1097,11 +957,11 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
                 </div>
 
                 {/* 叙事预设模板 */}
-                <div className="p-3 rounded-xl border border-indigo-100 bg-indigo-50/30 space-y-2">
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
-                      <span className="font-semibold text-slate-800 text-xs">长篇小说叙事风格预设</span>
+                      <span className="font-medium text-slate-700 text-xs">叙事预设模板</span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">
                         已选 {selectedPresetIds.length} 个
                       </span>
@@ -1657,13 +1517,13 @@ export const NewStoryModal: React.FC<NewStoryModalProps> = ({
         <button
           type="submit"
           className={`px-6 py-2 rounded-xl active:scale-95 text-white font-medium shadow-sm transition-all cursor-pointer flex items-center gap-1.5 ${
-            mode === 'novel'
+            isNovel
               ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
               : 'bg-sky-500 hover:bg-sky-600 shadow-sky-200'
           }`}
         >
           <Sparkles className="w-4 h-4" />
-          <span>{mode === 'novel' ? '创建小说项目并写作' : '开启文游'}</span>
+          <span>{isNovel ? '开启小说' : '开启文游'}</span>
         </button>
       </div>
         </form>

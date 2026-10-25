@@ -11,6 +11,8 @@ import { CharacterModal } from './components/CharacterModal';
 import { WorldBookModal } from './components/WorldBookModal';
 import { PresetModal } from './components/PresetModal';
 import { NewStoryModal } from './components/NewStoryModal';
+import { TRPGView } from './components/TRPG/TRPGView';
+import { TRPGNewSessionModal } from './components/TRPG/TRPGNewSessionModal';
 import {
   CharacterCard,
   WorldBook,
@@ -20,7 +22,14 @@ import {
   ActiveNavTab,
   UserMask,
   StoryMode,
+  TRPGSession,
 } from './types';
+import {
+  loadTRPGSessions,
+  saveSingleTRPGSession,
+  getActiveTRPGSessionId,
+  setActiveTRPGSessionId,
+} from './utils/trpgStorage';
 import {
   loadCharacters,
   saveCharacters,
@@ -59,6 +68,34 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [userMasks, setUserMasks] = useState<UserMask[]>(() => loadUserMasks());
   const [activeUserMaskId, setActiveUserMaskIdState] = useState<string | null>(() => getActiveUserMaskId());
+
+  // TRPG states
+  const [trpgSessions, setTrpgSessions] = useState<TRPGSession[]>(() => loadTRPGSessions());
+  const [activeTRPGSessionIdState, setActiveTRPGSessionIdState] = useState<string | null>(() => getActiveTRPGSessionId());
+  const [isNewTRPGModalOpen, setIsNewTRPGModalOpen] = useState(false);
+
+  const handleOpenTRPGSession = (sessionId: string) => {
+    setActiveTRPGSessionIdState(sessionId);
+    setActiveTRPGSessionId(sessionId);
+  };
+
+  const handleExitTRPGSession = () => {
+    setActiveTRPGSessionIdState(null);
+    setActiveTRPGSessionId(null);
+  };
+
+  const handleUpdateTRPGSession = (updated: TRPGSession) => {
+    const nextSessions = trpgSessions.map((s) => (s.id === updated.id ? updated : s));
+    setTrpgSessions(nextSessions);
+    saveSingleTRPGSession(updated);
+  };
+
+  const handleTRPGSessionCreated = (newSession: TRPGSession) => {
+    const nextSessions = [newSession, ...trpgSessions];
+    setTrpgSessions(nextSessions);
+    setActiveTRPGSessionIdState(newSession.id);
+    setActiveTRPGSessionId(newSession.id);
+  };
 
   // Modals state
   const [isNewStoryModalOpen, setIsNewStoryModalOpen] = useState(false);
@@ -255,13 +292,24 @@ export default function App() {
     alert('已重置配置（自带角色卡与玩家面具已清空，保留默认世界书与预设模板）！');
   };
 
-  // Active story save for ChatView
+  // Active story save for ChatView / TRPGView
   const currentActiveSave = saves.find((s) => s.id === activeSaveIdState);
+  const currentActiveTRPGSession = trpgSessions.find((s) => s.id === activeTRPGSessionIdState);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 antialiased font-sans selection:bg-sky-200 selection:text-sky-900">
-      {/* If in Chat/Story Mode, render full screen View (NovelStudioView for novels, ChatView for visual novel/CYOA) */}
-      {currentActiveSave ? (
+      {/* If in TRPG Mode, render TRPGView */}
+      {currentActiveTRPGSession ? (
+        <TRPGView
+          session={currentActiveTRPGSession}
+          worldbooks={worldbooks}
+          presets={presets}
+          settings={settings}
+          characterCards={characters}
+          onExit={handleExitTRPGSession}
+          onUpdateSession={handleUpdateTRPGSession}
+        />
+      ) : currentActiveSave ? (
         currentActiveSave.mode === 'novel' ? (
           <NovelStudioView
             save={currentActiveSave}
@@ -294,14 +342,17 @@ export default function App() {
             {activeTab === 'home' && (
               <HomeView
                 saves={saves}
+                trpgSessions={trpgSessions}
                 characters={characters}
                 worldbookCount={worldbooks.length}
                 presetCount={presets.length}
                 onContinueSave={handleOpenSave}
                 onOpenNewStoryModal={(mode) => {
-                  setNewStoryInitialMode(mode || 'single');
+                  setNewStoryInitialMode(mode || 'multi');
                   setIsNewStoryModalOpen(true);
                 }}
+                onOpenNewTRPGModal={() => setIsNewTRPGModalOpen(true)}
+                onContinueTRPGSession={handleOpenTRPGSession}
                 onNavigateToTab={(tab) => setActiveTab(tab)}
               />
             )}
@@ -338,7 +389,10 @@ export default function App() {
                 onRenameSave={handleRenameSave}
                 onImportSave={handleImportSave}
                 onDuplicateSave={handleDuplicateSave}
-                onOpenNewStory={() => setIsNewStoryModalOpen(true)}
+                onOpenNewStory={(mode) => {
+                  setNewStoryInitialMode(mode || 'single');
+                  setIsNewStoryModalOpen(true);
+                }}
               />
             )}
 
@@ -413,6 +467,17 @@ export default function App() {
           setSelectedPreset(null);
         }}
         onSave={handleSavePreset}
+      />
+
+      <TRPGNewSessionModal
+        isOpen={isNewTRPGModalOpen}
+        onClose={() => setIsNewTRPGModalOpen(false)}
+        characterCards={characters}
+        worldbooks={worldbooks}
+        presets={presets}
+        userMasks={userMasks}
+        activeUserMaskId={activeUserMaskId}
+        onSessionCreated={handleTRPGSessionCreated}
       />
     </div>
   );

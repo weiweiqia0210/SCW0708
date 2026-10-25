@@ -734,10 +734,11 @@ export interface StorySetupPolishResult {
   title?: string;
   openingPremise?: string;
   writingGuidance?: string;
+  outline?: string;
 }
 
 /**
- * AI Polish Story Setup (Title, Opening Premise, Writing Guidance)
+ * AI Polish Story Setup (Title, Opening Premise, Writing Guidance, Outline)
  */
 export async function polishStorySetup(params: {
   userInput: string;
@@ -748,6 +749,8 @@ export async function polishStorySetup(params: {
   model: string;
   customApiKey?: string;
   customEndpoint?: string;
+  isNovel?: boolean;
+  novelGenre?: string;
 }): Promise<{ success: boolean; data?: StorySetupPolishResult; error?: string }> {
   // Try backend proxy if available
   if (backendAvailable !== false) {
@@ -786,12 +789,30 @@ export async function polishStorySetup(params: {
     ? `世界观设定：\n` + (params.worldbooks || []).map((w: any) => `- 《${w.name}》：${w.description || ''}`).join('\n')
     : '';
 
-  const prompt = `你是一名顶级互动小说世界架构师与叙事总监。
+  const prompt = params.isNovel
+    ? `你是一名资深网络小说金牌主编与网文世界架构大师。
+请根据作者提供的大纲想法/核心设想，结合已设定的登场角色与世界观设定（题材：${params.novelGenre || '小说'}），进行全书大纲简要提炼、富有吸引力与商业价值的小说书名拟定、全书写作指导提炼。
+必须严格输出合法的纯 JSON 格式（不要附带任何前缀解释、markdown代码块标记或多余文字），包含以下确切键：
+{
+  "title": "富有吸引力与文学张力的小说书名（6-16字，如：万道剑尊·凡人破境、星渊长夜·至高序列）",
+  "openingPremise": "大纲简要（提炼全书核心主线、主要冲突矛盾、阵营势力纠葛与故事走向，约150-300字）",
+  "outline": "大纲简要（提炼全书核心主线、主要冲突矛盾、阵营势力纠葛与故事走向，约150-300字）",
+  "writingGuidance": "全书创作指导（提炼叙事基调、行文风格、主线节奏与核心爽点/痛点把控，约80-180字）"
+}
+
+【当前设定的角色与世界观背景】：
+${charContext}
+${wbContext}
+
+【作者提供的大纲想法/灵感描述】：
+"${params.userInput.trim()}"`
+    : `你是一名顶级互动小说世界架构师与叙事总监。
 请根据玩家提供的原始想法/灵感需求，结合已选定的登场角色与世界观设定，进行深度文学润色、开局情境构建与写作规范提炼。
 必须严格输出合法的纯 JSON 格式（不要附带任何前缀解释、markdown代码块标记或多余文字），包含以下确切键：
 {
   "title": "富有文学张力与画面感的故事存档标题（6-16字，如：极地孤影·誓约重燃、星渊长夜·破晓突围）",
   "openingPremise": "开局背景与情境设定（生动、沉浸、富有代入感的开局环境描写与初遇戏剧性情境，交代时间、地点、氛围、主角与相关人物的初遇戏剧张力，约150-300字）",
+  "outline": "大纲简要（与开局情境相呼应的概要设定，约150-300字）",
   "writingGuidance": "本场写作指导（提炼叙事基调、行文风格、冲突张力节奏、角色互动注意点等，约80-180字）"
 }
 

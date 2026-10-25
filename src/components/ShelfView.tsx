@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BookOpen, Search, Play, Trash2, Download, Upload, Edit3, Clock, Users, User, ArrowRight, Copy, Check } from 'lucide-react';
-import { StorySave, CharacterCard } from '../types';
+import { StorySave, CharacterCard, StoryMode } from '../types';
 import { downloadJsonFile } from '../utils/storage';
 
 interface ShelfViewProps {
@@ -11,7 +11,7 @@ interface ShelfViewProps {
   onRenameSave: (saveId: string, newTitle: string) => void;
   onImportSave: (save: StorySave) => void;
   onDuplicateSave?: (save: StorySave) => void;
-  onOpenNewStory: () => void;
+  onOpenNewStory: (mode?: StoryMode) => void;
 }
 
 export const ShelfView: React.FC<ShelfViewProps> = ({
@@ -202,12 +202,20 @@ export const ShelfView: React.FC<ShelfViewProps> = ({
             <BookOpen className="w-10 h-10 mx-auto text-slate-300 mb-2" />
             <div className="text-xs font-medium text-slate-600">书架空空如也</div>
             <div className="text-[11px] text-slate-400 mt-1">创建属于你的第一场冒险</div>
-            <button
-              onClick={onOpenNewStory}
-              className="mt-4 px-4 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-medium transition-all shadow-xs"
-            >
-              新建文游
-            </button>
+            <div className="flex items-center justify-center gap-2 mt-4">
+              <button
+                onClick={() => onOpenNewStory('single')}
+                className="px-4 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-medium transition-all shadow-xs cursor-pointer"
+              >
+                新建文游
+              </button>
+              <button
+                onClick={() => onOpenNewStory('novel')}
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-medium transition-all shadow-xs cursor-pointer"
+              >
+                新建小说
+              </button>
+            </div>
           </div>
         ) : (
           filteredSaves.map((save) => {

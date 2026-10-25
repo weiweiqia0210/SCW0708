@@ -1,24 +1,30 @@
 import React from 'react';
-import { Play, Plus, BookOpen, Clock, Users, ArrowRight, UserCircle, Book, Sliders } from 'lucide-react';
-import { StorySave, CharacterCard, StoryMode } from '../types';
+import { Play, Plus, BookOpen, Clock, Users, ArrowRight, UserCircle, Book, Sliders, Dices, Swords } from 'lucide-react';
+import { StorySave, CharacterCard, StoryMode, TRPGSession } from '../types';
 
 interface HomeViewProps {
   saves: StorySave[];
+  trpgSessions?: TRPGSession[];
   characters: CharacterCard[];
   worldbookCount: number;
   presetCount: number;
   onContinueSave: (saveId: string) => void;
   onOpenNewStoryModal: (initialMode?: StoryMode) => void;
+  onOpenNewTRPGModal: () => void;
+  onContinueTRPGSession: (sessionId: string) => void;
   onNavigateToTab: (tab: 'create' | 'shelf' | 'settings' | 'profile') => void;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
   saves,
+  trpgSessions = [],
   characters,
   worldbookCount,
   presetCount,
   onContinueSave,
   onOpenNewStoryModal,
+  onOpenNewTRPGModal,
+  onContinueTRPGSession,
   onNavigateToTab,
 }) => {
   // Sort saves by updatedAt descending
@@ -100,10 +106,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       ) : null}
 
-      {/* Primary CTAs: New Story & Novel Mode */}
+      {/* Primary CTAs: Visual Novel & Novel */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <button
-          onClick={() => onOpenNewStoryModal('single')}
+          onClick={() => onOpenNewStoryModal('multi')}
           className="flex items-center justify-between p-3.5 rounded-2xl bg-white border border-sky-200 shadow-xs hover:border-sky-300 hover:shadow-sm transition-all group active:scale-[0.99] text-left cursor-pointer"
         >
           <div className="flex items-center gap-3">
@@ -112,7 +118,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
             <div className="min-w-0">
               <div className="text-sm font-semibold text-slate-800 truncate">新建文游开档</div>
-              <div className="text-xs text-slate-400 truncate">单人专属 / 多人群像互动档</div>
+              <div className="text-xs text-slate-400 truncate">单人 / 群像互动文游</div>
             </div>
           </div>
           <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-sky-500 group-hover:translate-x-0.5 transition-all shrink-0" />
@@ -120,23 +126,47 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
         <button
           onClick={() => onOpenNewStoryModal('novel')}
-          className="flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-white via-indigo-50/20 to-purple-50/30 border border-indigo-200/90 shadow-xs hover:border-indigo-300 hover:shadow-sm transition-all group active:scale-[0.99] text-left cursor-pointer"
+          className="flex items-center justify-between p-3.5 rounded-2xl bg-white border border-indigo-200 shadow-xs hover:border-indigo-300 hover:shadow-sm transition-all group active:scale-[0.99] text-left cursor-pointer"
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0">
               <BookOpen className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-slate-800 flex items-center gap-1.5 truncate">
-                <span>长篇小说创作</span>
-                <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-indigo-100 text-indigo-700 font-medium">长篇写作</span>
-              </div>
-              <div className="text-xs text-indigo-500/80 truncate">章节写作 · 大纲走向 · AI续写润色</div>
+              <div className="text-sm font-semibold text-slate-800 truncate">新建小说开档</div>
+              <div className="text-xs text-slate-400 truncate">长篇小说章节连载</div>
             </div>
           </div>
           <ArrowRight className="w-4 h-4 text-indigo-300 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all shrink-0" />
         </button>
       </div>
+
+      {/* Featured Entry: TRPG Mode (跑团模式 内测版) */}
+      <button
+        onClick={onOpenNewTRPGModal}
+        className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-purple-50/80 via-white to-indigo-50/80 border border-purple-200/90 shadow-xs hover:border-purple-300 hover:shadow-sm transition-all group active:scale-[0.99] text-left cursor-pointer"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
+            <Dices className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-slate-800">新建跑团开档</span>
+              <span className="px-2 py-0.2 rounded-full bg-purple-100 text-purple-700 text-[10px] font-bold border border-purple-200">
+                内测版
+              </span>
+            </div>
+            <div className="text-xs text-slate-400 truncate">
+              规则快照 · 属性技能 · D20/多面骰检定 · 半可视战斗
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 text-xs font-semibold text-purple-600 group-hover:translate-x-0.5 transition-transform shrink-0">
+          <span>开团</span>
+          <ArrowRight className="w-4 h-4" />
+        </div>
+      </button>
 
       {/* Quick Access to Creative Materials */}
       <div>
@@ -241,6 +271,66 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Recent TRPG Sessions (if any) */}
+      {trpgSessions.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between text-xs font-medium text-purple-700 px-1 mb-2.5">
+            <span className="flex items-center gap-1.5 font-bold">
+              <Dices className="w-3.5 h-3.5 text-purple-600" />
+              跑团战役进度 ({trpgSessions.length})
+            </span>
+          </div>
+
+          <div className="space-y-2.5">
+            {trpgSessions.slice(0, 3).map((session) => (
+              <div
+                key={session.id}
+                onClick={() => onContinueTRPGSession(session.id)}
+                className="p-3.5 rounded-xl bg-gradient-to-r from-purple-50/50 via-white to-indigo-50/40 border border-purple-200/80 hover:border-purple-300 hover:shadow-xs transition-all cursor-pointer flex items-center justify-between gap-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-bold text-slate-800 truncate">
+                      {session.title}
+                    </span>
+                    <span className="shrink-0 text-[10px] px-1.5 py-0.2 rounded font-semibold bg-purple-100 text-purple-800">
+                      跑团
+                    </span>
+                    {session.combatState.inCombat && (
+                      <span className="shrink-0 text-[10px] px-1.5 py-0.2 rounded font-semibold bg-rose-100 text-rose-700 animate-pulse">
+                        交战中 R{session.combatState.round}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-500 truncate flex items-center gap-1.5">
+                    <span>主角: {session.character.name} ({session.character.characterClass || '冒险者'})</span>
+                    <span>·</span>
+                    <span className="text-rose-600 font-medium">HP {session.character.currentHp}/{session.character.maxHp}</span>
+                    {session.mapState && (
+                      <>
+                        <span>·</span>
+                        <span className="text-amber-700 font-semibold truncate max-w-[120px]">
+                          📍 {session.mapState.locations?.find((l: any) => l.id === session.mapState.currentLocationId)?.name || '驻地'}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-end shrink-0 gap-1">
+                  <span className="text-[10px] text-slate-400">
+                    {formatRelativeTime(session.updatedAt)}
+                  </span>
+                  <span className="text-[11px] font-semibold text-purple-600 flex items-center gap-0.5">
+                    继续冒险 <ArrowRight className="w-3 h-3" />
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
