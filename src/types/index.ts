@@ -249,6 +249,15 @@ export interface DialogueAISettings {
   temperature: number;
   enableThinking: boolean; // 是否展示深度思考链
   customPersonaTitle?: string; // 助手身份头衔
+  fontSize?: 'sm' | 'base' | 'lg' | 'xl'; // 聊天字号大小调节
+}
+
+export interface DialogueFolder {
+  id: string;
+  name: string;
+  isExpanded?: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface DialogueSession {
@@ -256,8 +265,28 @@ export interface DialogueSession {
   title: string;
   messages: DialogueMessage[];
   aiSettings: DialogueAISettings;
+  folderId?: string; // 所属文件夹 ID (空或未设置表示未分类/根目录)
   createdAt: number;
   updatedAt: number;
+}
+
+export interface DialogueApiConfig {
+  useCustom: boolean; // 是否启用本模式专属 API (未开启则跟随全局设置)
+  provider: AIProvider;
+  model: string;
+  customApiKey: string;
+  customEndpoint: string;
+  presetId?: string;
+}
+
+export interface DialogueApiPreset {
+  id: string;
+  name: string;
+  provider: AIProvider;
+  model: string;
+  customApiKey?: string;
+  customEndpoint?: string;
+  isBuiltIn?: boolean;
 }
 
 export * from './trpg';

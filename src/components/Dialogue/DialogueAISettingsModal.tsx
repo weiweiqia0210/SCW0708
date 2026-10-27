@@ -13,6 +13,7 @@ import {
   Flame,
   FileText,
   Lightbulb,
+  Type,
 } from 'lucide-react';
 import { DialogueAISettings } from '../../types';
 import { DEFAULT_AI_SETTINGS, PROMPT_PRESETS } from '../../utils/dialogueStorage';
@@ -315,6 +316,58 @@ export const DialogueAISettingsModal: React.FC<DialogueAISettingsModalProps> = (
                   <span>严谨专注 (0.2)</span>
                   <span>平衡适中 (0.7)</span>
                   <span>天马行空 (1.2)</span>
+                </div>
+              </div>
+
+              {/* Font Size Selector (User requirement: 设置加入调节字大小的功能) */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                    <Type className="w-3.5 h-3.5 text-sky-600" />
+                    <span>聊天字体大小 (Font Size)</span>
+                  </span>
+                  <span className="font-mono text-[11px] text-sky-700 font-bold bg-sky-50 px-2 py-0.5 rounded-md border border-sky-100">
+                    {formData.fontSize === 'sm' && '小号 (13px)'}
+                    {(!formData.fontSize || formData.fontSize === 'base') && '标准 (15px)'}
+                    {formData.fontSize === 'lg' && '中大 (17px)'}
+                    {formData.fontSize === 'xl' && '特大 (19px)'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { id: 'sm', label: '小号', desc: '精致紧凑' },
+                    { id: 'base', label: '标准', desc: '默认适中' },
+                    { id: 'lg', label: '中大', desc: '轻松阅读' },
+                    { id: 'xl', label: '特大', desc: '清晰醒目' },
+                  ].map((item) => {
+                    const isSelected = (formData.fontSize || 'base') === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            fontSize: item.id as DialogueAISettings['fontSize'],
+                          }))
+                        }
+                        className={`py-2 px-1.5 rounded-xl text-center border transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-sky-500 text-white border-sky-500 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-sky-300 hover:bg-sky-50/50'
+                        }`}
+                      >
+                        <div className="text-xs font-bold">{item.label}</div>
+                        <div
+                          className={`text-[10px] mt-0.5 truncate ${
+                            isSelected ? 'text-sky-100' : 'text-slate-400'
+                          }`}
+                        >
+                          {item.desc}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>

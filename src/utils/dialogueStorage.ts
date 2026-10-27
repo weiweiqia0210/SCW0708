@@ -1,4 +1,11 @@
-import { DialogueSession, DialogueAISettings, DialogueMessage } from '../types';
+import {
+  DialogueSession,
+  DialogueAISettings,
+  DialogueMessage,
+  DialogueApiConfig,
+  DialogueApiPreset,
+  DialogueFolder,
+} from '../types';
 
 const STORAGE_KEY_SESSIONS = 'tako_dialogue_sessions';
 const STORAGE_KEY_ACTIVE_ID = 'tako_active_dialogue_session_id';
@@ -15,6 +22,7 @@ export const DEFAULT_AI_SETTINGS: DialogueAISettings = {
   temperature: 0.7,
   enableThinking: true,
   customPersonaTitle: '智能构想智囊',
+  fontSize: 'base',
 };
 
 export const PROMPT_PRESETS: Array<{
@@ -107,7 +115,8 @@ export function saveSingleDialogueSession(session: DialogueSession): void {
 
 export function createNewDialogueSession(
   initialTitle?: string,
-  initialSettings?: Partial<DialogueAISettings>
+  initialSettings?: Partial<DialogueAISettings>,
+  folderId?: string
 ): DialogueSession {
   const newSession: DialogueSession = {
     id: `dialogue-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -117,6 +126,7 @@ export function createNewDialogueSession(
       ...DEFAULT_AI_SETTINGS,
       ...initialSettings,
     },
+    folderId,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -131,6 +141,77 @@ export function deleteDialogueSession(id: string): void {
   if (getActiveDialogueSessionId() === id) {
     setActiveDialogueSessionId(sessions[0]?.id || null);
   }
+}
+
+// ==========================================
+// 文件夹管理 (Folder Management)
+// ==========================================
+const STORAGE_KEY_FOLDERS = 'tako_dialogue_folders';
+
+export function loadDialogueFolders(): DialogueFolder[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_FOLDERS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error('Failed to load dialogue folders:', e);
+    return [];
+  }
+}
+
+export function saveDialogueFolders(folders: DialogueFolder[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_FOLDERS, JSON.stringify(folders));
+  } catch (e) {
+    console.error('Failed to save dialogue folders:', e);
+  }
+}
+
+export function createDialogueFolder(name: string): DialogueFolder {
+  const folders = loadDialogueFolders();
+  const newFolder: DialogueFolder = {
+    id: `folder-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    name: name.trim() || '新建文件夹',
+    isExpanded: true,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  saveDialogueFolders([...folders, newFolder]);
+  return newFolder;
+}
+
+export function deleteDialogueFolder(id: string): void {
+  const folders = loadDialogueFolders().filter((f) => f.id !== id);
+  saveDialogueFolders(folders);
+  // Un-assign sessions from deleted folder to root
+  const sessions = loadDialogueSessions();
+  const updated = sessions.map((s) => (s.folderId === id ? { ...s, folderId: undefined } : s));
+  saveDialogueSessions(updated);
+}
+
+export function renameDialogueFolder(id: string, newName: string): void {
+  const folders = loadDialogueFolders();
+  const updated = folders.map((f) =>
+    f.id === id ? { ...f, name: newName.trim() || f.name, updatedAt: Date.now() } : f
+  );
+  saveDialogueFolders(updated);
+}
+
+export function toggleDialogueFolderExpand(id: string): void {
+  const folders = loadDialogueFolders();
+  const updated = folders.map((f) =>
+    f.id === id ? { ...f, isExpanded: f.isExpanded === false ? true : false } : f
+  );
+  saveDialogueFolders(updated);
+}
+
+export function moveDialogueSessionToFolder(sessionId: string, folderId?: string | null): void {
+  const sessions = loadDialogueSessions();
+  const updated = sessions.map((s) =>
+    s.id === sessionId ? { ...s, folderId: folderId || undefined, updatedAt: Date.now() } : s
+  );
+  saveDialogueSessions(updated);
 }
 
 export function getActiveDialogueSessionId(): string | null {
@@ -152,3 +233,150 @@ export function setActiveDialogueSessionId(id: string | null): void {
     // Ignore storage errors
   }
 }
+
+// ==========================================
+// 对话模式专属 API 与预设管理
+// ==========================================
+const STORAGE_KEY_API_CONFIG = 'tako_dialogue_api_config';
+const STORAGE_KEY_API_PRESETS = 'tako_dialogue_api_presets';
+
+export const DEFAULT_API_PRESETS: DialogueApiPreset[] = [
+  {
+    id: 'preset-gemini-3.8-flash',
+    name: 'Gemini 3.8 Flash (推荐·高速)',
+    provider: 'gemini',
+    model: 'gemini-3.8-flash',
+    isBuiltIn: true,
+  },
+  {
+    id: 'preset-gemini-2.5-pro',
+    name: 'Gemini 2.5 Pro (深度分析)',
+    provider: 'gemini',
+    model: 'gemini-2.5-pro',
+    isBuiltIn: true,
+  },
+  {
+    id: 'preset-gemini-3.1-flash-lite',
+    name: 'Gemini 3.1 Flash Lite',
+    provider: 'gemini',
+    model: 'gemini-3.1-flash-lite',
+    isBuiltIn: true,
+  },
+  {
+    id: 'preset-deepseek-v3',
+    name: 'DeepSeek-V3 (官方 API)',
+    provider: 'openai_compatible',
+    model: 'deepseek-chat',
+    customEndpoint: 'https://api.deepseek.com',
+    isBuiltIn: true,
+  },
+  {
+    id: 'preset-deepseek-r1',
+    name: 'DeepSeek-R1 (官方深度推理)',
+    provider: 'openai_compatible',
+    model: 'deepseek-reasoner',
+    customEndpoint: 'https://api.deepseek.com',
+    isBuiltIn: true,
+  },
+  {
+    id: 'preset-gpt-4o-mini',
+    name: 'OpenAI GPT-4o Mini',
+    provider: 'openai_compatible',
+    model: 'gpt-4o-mini',
+    customEndpoint: 'https://api.openai.com/v1',
+    isBuiltIn: true,
+  },
+  {
+    id: 'preset-ollama-local',
+    name: '本地 Ollama (Local)',
+    provider: 'openai_compatible',
+    model: 'llama3',
+    customEndpoint: 'http://localhost:11434/v1',
+    isBuiltIn: true,
+  },
+];
+
+export function loadDialogueApiConfig(globalSettings?: any): import('../types').DialogueApiConfig {
+  const fallbackProvider = globalSettings?.provider || 'gemini';
+  const fallbackModel = globalSettings?.model || 'gemini-3.8-flash';
+  const fallbackKey = globalSettings?.customApiKey || '';
+  const fallbackEndpoint = globalSettings?.customEndpoint || '';
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_API_CONFIG);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'object' && parsed !== null) {
+        return {
+          useCustom: Boolean(parsed.useCustom),
+          provider: parsed.provider || fallbackProvider,
+          model: parsed.model || fallbackModel,
+          customApiKey: parsed.customApiKey ?? fallbackKey,
+          customEndpoint: parsed.customEndpoint ?? fallbackEndpoint,
+          presetId: parsed.presetId,
+        };
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load dialogue API config:', e);
+  }
+
+  // 默认跟随全局设置，且初始填入当前全局使用的配置
+  return {
+    useCustom: false,
+    provider: fallbackProvider,
+    model: fallbackModel,
+    customApiKey: fallbackKey,
+    customEndpoint: fallbackEndpoint,
+  };
+}
+
+export function saveDialogueApiConfig(config: import('../types').DialogueApiConfig): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_API_CONFIG, JSON.stringify(config));
+  } catch (e) {
+    console.error('Failed to save dialogue API config:', e);
+  }
+}
+
+export function loadDialogueApiPresets(): DialogueApiPreset[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_API_PRESETS);
+    if (!raw) return DEFAULT_API_PRESETS;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+  } catch (e) {
+    console.error('Failed to load dialogue API presets:', e);
+  }
+  return DEFAULT_API_PRESETS;
+}
+
+export function saveDialogueApiPresets(presets: DialogueApiPreset[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_API_PRESETS, JSON.stringify(presets));
+  } catch (e) {
+    console.error('Failed to save dialogue API presets:', e);
+  }
+}
+
+export function addDialogueApiPreset(preset: Omit<DialogueApiPreset, 'id'>): DialogueApiPreset {
+  const list = loadDialogueApiPresets();
+  const newPreset: DialogueApiPreset = {
+    ...preset,
+    id: `custom-api-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    isBuiltIn: false,
+  };
+  const updated = [newPreset, ...list];
+  saveDialogueApiPresets(updated);
+  return newPreset;
+}
+
+export function deleteDialogueApiPreset(id: string): DialogueApiPreset[] {
+  const list = loadDialogueApiPresets();
+  const updated = list.filter((p) => p.id !== id);
+  saveDialogueApiPresets(updated);
+  return updated;
+}
+
